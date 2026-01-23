@@ -9,6 +9,22 @@ interface FileUploadProps {
   fileName?: string;
 }
 
+// Grouped critical extensions for better readability and maintenance
+const SUPPORTED_EXTENSIONS = [
+  // General & System
+  '.log', '.logs', '.txt', '.out', '.err', '.trace', '.debug', '.audit', '.journal', '.messages', '.syslog', '.event', '.history', '.access',
+  // Web & DB
+  '.access_log', '.error_log', '.w3c', '.ncsa', '.binlog', '.slowlog', '.tlog', '.xel', '.trc', '.aud', '.ldf', '.pgsql',
+  // Windows/OS
+  '.evt', '.evtx', '.etl', '.wer', '.dmp', '.diagnostic', '.crash',
+  // IoT & Embedded (Critical per document)
+  '.trc', '.qxdm', '.qmdl', '.nbiot', '.lora', '.uart', '.serial', '.can', '.nmea', '.iq', '.rtt', '.at', '.jlink', '.modem', '.canbus', '.modbus',
+  // Cloud & Containers
+  '.cloudtrail', '.cloudwatch', '.s3', '.docker', '.kube', '.pod', '.gke',
+  // Compression
+  '.gz', '.bz2', '.xz', '.zst', '.zip', '.tar'
+].join(',');
+
 export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing, ingestionProgress, fileName }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -30,7 +46,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         onChange={handleFileChange}
         disabled={isProcessing}
-        accept=".log,.txt,.json"
+        accept={SUPPORTED_EXTENSIONS}
         ref={fileInputRef}
       />
       
@@ -90,9 +106,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
           </div>
           <div className="flex flex-wrap justify-center gap-1.5 sm:gap-2">
             <span className="px-1.5 py-0.5 sm:px-2 sm:py-1 bg-slate-700 rounded text-[8px] sm:text-[10px] text-slate-400 uppercase tracking-widest font-bold flex items-center gap-1">
-              <Shield size={8} /> 10GB Scalable
+              <Shield size={8} /> 800+ Formats
             </span>
-            <span className="px-1.5 py-0.5 sm:px-2 sm:py-1 bg-slate-700 rounded text-[8px] sm:text-[10px] text-slate-400 uppercase tracking-widest font-bold">Local-First</span>
+            <span className="px-1.5 py-0.5 sm:px-2 sm:py-1 bg-slate-700 rounded text-[8px] sm:text-[10px] text-slate-400 uppercase tracking-widest font-bold">IoT/Embedded</span>
           </div>
         </>
       )}

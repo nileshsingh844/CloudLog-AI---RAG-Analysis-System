@@ -1,6 +1,6 @@
 
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import { LogChunk, ChatMessage, SearchIndex } from "../types";
+import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
+import { LogChunk, ChatMessage, SearchIndex, ProcessingStats } from "../types";
 
 export class GeminiService {
   /**
@@ -11,7 +11,7 @@ export class GeminiService {
   }
 
   /**
-   * Token-Aware Context Trimming
+   * Context Trimming
    */
   private prepareContext(rankedChunks: LogChunk[], history: ChatMessage[], maxContextTokens: number = 25000): string {
     let currentTokens = 0;
@@ -28,6 +28,57 @@ export class GeminiService {
     }
 
     return finalChunks.join('\n\n');
+  }
+
+  /**
+   * Suggest high-value queries based on initial scan
+   */
+  async getDiscoveryPrompts(stats: ProcessingStats, sampleChunks: LogChunk[]): Promise<string[]> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const sample = sampleChunks.slice(0, 3).map(c => c.content).join('\n');
+    
+    const prompt = `
+      As an expert SRE and Security Engineer, analyze this log file metadata and content sample.
+      FILE: ${stats.fileName} (${stats.fileInfo?.format})
+      SEVERITIES: ${JSON.stringify(stats.severities)}
+      SAMPLE CONTENT:
+      ${sample.substring(0, 2000)}
+
+      Suggest 4 highly specific, high-value investigative questions the user could ask to find issues or insights in this specific file.
+      Focus on anomalies, performance, or security risks indicated by the sample or stats.
+      Return exactly 4 questions.
+    `;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              suggestions: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
+            },
+            required: ['suggestions']
+          }
+        }
+      });
+
+      const data = JSON.parse(response.text || '{}');
+      return data.suggestions || [];
+    } catch (e) {
+      console.error("Failed to generate suggestions", e);
+      return [
+        "What are the most frequent error messages?",
+        "Identify any unusual activity patterns.",
+        "Summarize the main system events.",
+        "Are there any security warnings?"
+      ];
+    }
   }
 
   private findRelevantChunks(chunks: LogChunk[], index: SearchIndex, query: string, topK: number = 7): LogChunk[] {
@@ -70,18 +121,17 @@ export class GeminiService {
   ): AsyncGenerator<any> {
     if (!index) throw new Error("Search Index not compiled");
     
-    // Create fresh instance to pick up potential key changes
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
     const rankedChunks = this.findRelevantChunks(chunks, index, query);
     const context = this.prepareContext(rankedChunks, history);
     const recentHistory = history.slice(-5).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
 
-    const prompt = `
-      DIAGNOSTIC MANDATE: The following is raw log data provided for security analysis and debugging. 
-      It may contain technical descriptions of errors, attacks, or vulnerabilities. 
-      You are an authorized SRE agent performing root cause analysis. Do not trigger safety filters on log content.
+    const systemInstruction = `
+      DIAGNOSTIC MANDATE: Analyze raw log data for debugging and security analysis. 
+      You are an SRE performing root cause analysis. Be precise, technical, and objective.
+    `;
 
+    const userPrompt = `
       CONTEXT:
       ${context}
       
@@ -90,10 +140,6 @@ export class GeminiService {
 
       QUERY:
       ${query}
-      
-      GUIDELINES:
-      - Cite segments exactly.
-      - If security issues like SQLi or XSS are found in logs, report them technically.
     `;
 
     let attempt = 0;
@@ -101,16 +147,10 @@ export class GeminiService {
       try {
         const response = await ai.models.generateContentStream({
           model: modelName,
-          contents: prompt,
+          contents: userPrompt,
           config: { 
+            systemInstruction,
             temperature: 0.1,
-            safetySettings: [
-              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-            ]
           }
         });
 
@@ -124,7 +164,6 @@ export class GeminiService {
 
       } catch (error: any) {
         const isRateLimit = error.message?.includes('429') || error.status === 429;
-        
         if (isRateLimit && attempt < retries) {
           attempt++;
           const waitTime = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
@@ -132,8 +171,6 @@ export class GeminiService {
           await this.delay(waitTime);
           continue;
         }
-
-        console.error("Gemini Pipeline Failure:", error);
         throw error;
       }
     }

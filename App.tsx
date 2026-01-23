@@ -1,6 +1,6 @@
 
 // @google/genai guidelines followed: models used are gemini-3-flash-preview and gemini-3-pro-preview.
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect } from 'react';
 import { useLogStore } from './store/useLogStore';
 import { FileUpload } from './components/FileUpload';
 import { StatsPanel } from './components/StatsPanel';
@@ -9,6 +9,9 @@ import { LogTimeline } from './components/LogTimeline';
 import { LogTimeRange } from './components/LogTimeRange';
 import { MonitoringDashboard } from './components/MonitoringDashboard';
 import { IntelligenceHub } from './components/IntelligenceHub';
+import { TestCenter } from './components/TestCenter';
+import { TestReportModal } from './components/TestReportModal';
+import { RegressiveReportModal } from './components/RegressiveReportModal';
 import { GeminiService } from './services/geminiService';
 import { Terminal, Database, Activity, Settings, LayoutDashboard } from 'lucide-react';
 
@@ -16,6 +19,10 @@ const App: React.FC = () => {
   const { 
     state, 
     processNewFile, 
+    simulateStressTest,
+    runRegressiveSuite,
+    clearTestReport,
+    clearRegressiveReport,
     addMessage, 
     updateLastMessageChunk, 
     setLastMessageSources, 
@@ -25,15 +32,32 @@ const App: React.FC = () => {
     setViewMode,
     selectModel,
     setSettingsOpen,
-    openKeyManager
+    openKeyManager,
+    setSuggestions,
+    setGeneratingSuggestions
   } = useLogStore();
 
   const gemini = useMemo(() => {
     return new GeminiService();
   }, []);
 
+  // Intelligent Prompt Generation Trigger
+  useEffect(() => {
+    if (state.stats && state.chunks.length > 0 && state.suggestions.length === 0 && !state.isProcessing && !state.isGeneratingSuggestions) {
+      setGeneratingSuggestions(true);
+      gemini.getDiscoveryPrompts(state.stats, state.chunks)
+        .then((s) => {
+          setSuggestions(s);
+          setGeneratingSuggestions(false);
+        })
+        .catch(() => {
+          setGeneratingSuggestions(false);
+        });
+    }
+  }, [state.stats, state.chunks, state.isProcessing, state.isGeneratingSuggestions, gemini, setSuggestions, setGeneratingSuggestions, state.suggestions.length]);
+
   const handleSendMessage = useCallback(async (query: string) => {
-    if (state.isProcessing || !state.chunks.length) return;
+    if (state.isProcessing || (!state.chunks.length && !state.stats)) return;
 
     const queryStart = performance.now();
     const currentHistory = [...state.messages];
@@ -82,7 +106,7 @@ const App: React.FC = () => {
       updateLastMessageError(`Critical System Failure: ${error.message}`);
       recordQueryMetric(performance.now() - queryStart, true, false);
     }
-  }, [gemini, state.isProcessing, state.chunks, state.searchIndex, state.messages, state.selectedModelId, addMessage, updateLastMessageChunk, setLastMessageSources, finishLastMessage, updateLastMessageError, recordQueryMetric]);
+  }, [gemini, state.isProcessing, state.chunks, state.searchIndex, state.messages, state.selectedModelId, addMessage, updateLastMessageChunk, setLastMessageSources, finishLastMessage, updateLastMessageError, recordQueryMetric, state.stats]);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-200">
@@ -136,7 +160,19 @@ const App: React.FC = () => {
 
       <main className="flex-1 max-w-[1600px] mx-auto w-full p-3 sm:p-4 md:p-6 overflow-x-hidden">
         {state.viewMode === 'operator' ? (
-          <MonitoringDashboard metrics={state.metrics} isProcessing={state.isProcessing} />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-8">
+              <MonitoringDashboard metrics={state.metrics} isProcessing={state.isProcessing} />
+            </div>
+            <div className="lg:col-span-4">
+              <TestCenter 
+                onSimulateLargeFile={simulateStressTest}
+                onRunPrompt={handleSendMessage}
+                onRunRegressive={runRegressiveSuite}
+                isProcessing={state.isProcessing}
+              />
+            </div>
+          </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
             <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-4 sm:gap-6">
@@ -171,14 +207,31 @@ const App: React.FC = () => {
                <ChatWindow 
                   messages={state.messages} 
                   onSendMessage={handleSendMessage}
-                  isProcessing={state.isProcessing}
+                  isProcessing={state.isProcessing || state.isGeneratingSuggestions}
                   selectedModel={state.selectedModelId}
-                  onToggleModel={() => setSettingsOpen(true)}
+                  onSelectModel={selectModel}
+                  onOpenSettings={() => setSettingsOpen(true)}
+                  suggestions={state.suggestions}
                />
             </div>
           </div>
         )}
       </main>
+
+      {state.testReport && (
+        <TestReportModal 
+          report={state.testReport} 
+          onClose={clearTestReport} 
+        />
+      )}
+
+      {state.regressiveReport && (
+        <RegressiveReportModal 
+          report={state.regressiveReport}
+          onClose={clearRegressiveReport}
+          isProcessing={state.isProcessing}
+        />
+      )}
 
       <IntelligenceHub 
         isOpen={state.isSettingsOpen}

@@ -8,6 +8,16 @@ export enum Severity {
   UNKNOWN = 'UNKNOWN'
 }
 
+export interface FileInfo {
+  originalName: string;
+  extension: string;
+  format: string;
+  compression: string | null;
+  parserUsed: string;
+  isBinary: boolean;
+  category: string;
+}
+
 export interface LogEntry {
   id: string;
   timestamp: Date | null;
@@ -18,6 +28,7 @@ export interface LogEntry {
     hasStackTrace: boolean;
     signature: string;
     occurrenceCount?: number;
+    [key: string]: any;
   };
 }
 
@@ -47,6 +58,7 @@ export interface ProcessingStats {
   fileSize: number;
   fileName: string;
   chunkCount: number;
+  fileInfo?: FileInfo;
 }
 
 export interface SystemMetrics {
@@ -56,6 +68,35 @@ export interface SystemMetrics {
   errorCount: number;
   rateLimitHits: number;
   memoryUsage: number;
+}
+
+export interface TestCase {
+  name: string;
+  category: 'Parser' | 'RAG' | 'Performance' | 'Security';
+  status: 'passed' | 'failed' | 'running';
+  duration: string;
+  details: string;
+}
+
+export interface RegressiveReport {
+  timestamp: Date;
+  overallStatus: 'passed' | 'failed';
+  testCases: TestCase[];
+  benchmarks: {
+    indexingSpeed: string;
+    p95Latency: string;
+    memoryEfficiency: string;
+    tokenCoverage: string;
+  };
+}
+
+export interface TestReport {
+  timestamp: Date;
+  throughput: string;
+  compressionRatio: string;
+  ragAccuracy: string;
+  loadTime: string;
+  status: 'passed' | 'failed';
 }
 
 export type LLMProvider = 'google-gemini' | 'openai' | 'anthropic' | 'mistral';
@@ -83,6 +124,7 @@ export interface ChatMessage {
 export interface AppState {
   apiKey: string | null;
   isProcessing: boolean;
+  isGeneratingSuggestions: boolean;
   ingestionProgress: number;
   logs: LogEntry[];
   chunks: LogChunk[];
@@ -93,4 +135,7 @@ export interface AppState {
   metrics: SystemMetrics;
   viewMode: 'diagnostic' | 'operator';
   isSettingsOpen: boolean;
+  testReport: TestReport | null;
+  regressiveReport: RegressiveReport | null;
+  suggestions: string[];
 }
