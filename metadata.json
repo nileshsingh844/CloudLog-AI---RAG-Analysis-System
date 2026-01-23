@@ -1,0 +1,5 @@
+{
+  "name": "CloudLog AI - RAG Analysis System",
+  "description": "A high-performance log analysis platform using Retrieval-Augmented Generation (RAG) and Gemini AI to parse, index, and analyze massive log files with semantic intelligence.",
+  "requestFramePermissions": []
+}
