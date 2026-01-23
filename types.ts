@@ -74,6 +74,14 @@ export interface CodeFile {
   size: number;
 }
 
+export interface KnowledgeFile {
+  id: string;
+  name: string;
+  content: string;
+  type: 'runbook' | 'documentation' | 'policy';
+  size: number;
+}
+
 export interface SearchIndex {
   invertedIndex: Map<string, Set<string>>;
   termWeights: Map<string, number>;
@@ -120,8 +128,13 @@ export interface ModelOption {
   provider: LLMProvider;
   name: string;
   description: string;
-  capabilities: ('speed' | 'logic' | 'context')[];
+  capabilities: ('speed' | 'logic' | 'context' | 'search')[];
   status: 'active' | 'requires-config';
+}
+
+export interface GroundingSource {
+  title: string;
+  uri: string;
 }
 
 export interface ChatMessage {
@@ -130,6 +143,7 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   sources?: string[];
+  groundingLinks?: GroundingSource[];
   codeSnippets?: SourceLocation[];
   analysisSteps?: CodeFlowStep[];
   debugSolutions?: DebugSolution[];
@@ -138,7 +152,7 @@ export interface ChatMessage {
   provider?: LLMProvider;
 }
 
-export type PipelineStep = 'ingestion' | 'analysis' | 'code-sync' | 'debug';
+export type PipelineStep = 'ingestion' | 'analysis' | 'code-sync' | 'knowledge' | 'debug';
 
 export interface TestCase {
   name: string;
@@ -173,6 +187,7 @@ export interface AppState {
   logs: LogEntry[];
   chunks: LogChunk[];
   sourceFiles: CodeFile[];
+  knowledgeFiles: KnowledgeFile[];
   searchIndex: SearchIndex | null;
   stats: ProcessingStats | null;
   messages: ChatMessage[];

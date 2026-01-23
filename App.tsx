@@ -9,19 +9,24 @@ import { LogTimeline } from './components/LogTimeline';
 import { LogTimeRange } from './components/LogTimeRange';
 import { IntelligenceHub } from './components/IntelligenceHub';
 import { CodeHub } from './components/CodeHub';
+import { KnowledgeHub } from './components/KnowledgeHub';
 import { GeminiService } from './services/geminiService';
 import { PipelineStep, ChatMessage } from './types';
-import { Terminal, Activity, Settings, Code, CloudUpload, ShieldAlert, ArrowRight, CheckCircle2, ChevronRight, Info, Zap, Sparkles, Database, LayoutPanelLeft } from 'lucide-react';
+// Added Globe to imports from lucide-react
+import { Terminal, Activity, Settings, Code, CloudUpload, ShieldAlert, ArrowRight, CheckCircle2, ChevronRight, Info, Zap, Sparkles, Database, LayoutPanelLeft, Book, Globe } from 'lucide-react';
 
 const App: React.FC = () => {
   const { 
     state, 
     processNewFile,
     processSourceFiles,
+    processKnowledgeFiles,
     clearSourceFiles,
+    clearKnowledgeFiles,
     addMessage, 
     updateLastMessageChunk, 
     setLastMessageSources, 
+    setLastMessageGrounding,
     finishLastMessage, 
     updateLastMessageError, 
     recordQueryMetric,
@@ -63,6 +68,7 @@ const App: React.FC = () => {
         state.chunks, 
         state.searchIndex,
         state.sourceFiles,
+        state.knowledgeFiles,
         query, 
         state.selectedModelId, 
         state.messages
@@ -73,6 +79,8 @@ const App: React.FC = () => {
           setLastMessageSources(chunk.data);
         } else if (chunk.type === 'text') {
           updateLastMessageChunk(chunk.data);
+        } else if (chunk.type === 'grounding') {
+          setLastMessageGrounding(chunk.data);
         } else if (chunk.type === 'analysis') {
            const lastMsg = state.messages[state.messages.length - 1];
            if (lastMsg) lastMsg.analysisSteps = chunk.data;
@@ -93,12 +101,13 @@ const App: React.FC = () => {
       updateLastMessageError(`Diagnostic Engine Failure: ${error.message}`);
       recordQueryMetric(performance.now() - queryStart, true);
     }
-  }, [gemini, state.isProcessing, state.chunks, state.searchIndex, state.sourceFiles, state.messages, state.selectedModelId]);
+  }, [gemini, state.isProcessing, state.chunks, state.searchIndex, state.sourceFiles, state.knowledgeFiles, state.messages, state.selectedModelId]);
 
   const PIPELINE_STEPS: { id: PipelineStep; label: string; icon: React.ReactElement; desc: string }[] = [
     { id: 'ingestion', label: 'Ingestion', icon: <CloudUpload size={16} />, desc: 'Upload raw log streams' },
     { id: 'analysis', label: 'Analysis', icon: <Activity size={16} />, desc: 'AI-driven log diagnostics' },
     { id: 'code-sync', label: 'Code Sync', icon: <Code size={16} />, desc: 'Connect source context' },
+    { id: 'knowledge', label: 'Knowledge Base', icon: <Book size={16} />, desc: 'Add runbooks & documentation' },
     { id: 'debug', label: 'Deep Debug', icon: <ShieldAlert size={16} />, desc: 'Root cause analysis' }
   ];
 
@@ -184,7 +193,7 @@ const App: React.FC = () => {
                   <p className="text-xs text-slate-400 font-medium">{PIPELINE_STEPS.find(s => s.id === state.activeStep)?.desc}</p>
                </div>
              </div>
-             {currentStepIdx < 3 && (
+             {currentStepIdx < PIPELINE_STEPS.length - 1 && (
                <button 
                 onClick={() => setActiveStep(PIPELINE_STEPS[currentStepIdx + 1].id)}
                 className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 transition-all active:scale-95"
@@ -303,10 +312,10 @@ const App: React.FC = () => {
                     </button>
                     {state.sourceFiles.length > 0 && (
                       <button 
-                        onClick={() => setActiveStep('debug')}
+                        onClick={() => setActiveStep('knowledge')}
                         className="px-12 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest transition-all shadow-2xl shadow-blue-600/30 group"
                       >
-                        Start Deep Debugging <ArrowRight size={18} className="inline ml-2 group-hover:translate-x-1 transition-transform" />
+                        Add Runbooks <ArrowRight size={18} className="inline ml-2 group-hover:translate-x-1 transition-transform" />
                       </button>
                     )}
                   </div>
@@ -314,7 +323,50 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Step 4: Deep Debug */}
+          {/* Step 4: Knowledge Base (New Step) */}
+          {state.activeStep === 'knowledge' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 h-full min-h-0 animate-in fade-in slide-in-from-right-8 duration-700">
+               <div className="lg:col-span-5 xl:col-span-4 flex flex-col min-h-0">
+                  <KnowledgeHub 
+                    knowledgeFiles={state.knowledgeFiles} 
+                    onUpload={processKnowledgeFiles} 
+                    onClear={clearKnowledgeFiles}
+                    isProcessing={state.isProcessing}
+                  />
+               </div>
+               <div className="lg:col-span-7 xl:col-span-8 flex flex-col items-center justify-center p-10 bg-emerald-900/10 border border-emerald-800/50 rounded-[3rem] text-center space-y-10 shadow-inner">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-emerald-500/10 blur-3xl rounded-full animate-pulse" />
+                    <div className="relative p-10 bg-slate-900 rounded-[2.5rem] border border-slate-800 shadow-2xl">
+                       <Book size={64} className="text-emerald-500" />
+                    </div>
+                  </div>
+                  <div className="max-w-2xl space-y-4">
+                    <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter">Enhanced RAG Integration</h2>
+                    <p className="text-slate-400 leading-relaxed font-medium text-lg">
+                      Upload your <span className="text-emerald-400 font-bold">internal runbooks</span> and documentation. 
+                      Our RAG engine will match log error patterns against your company-specific fixes to provide highly relevant solutions.
+                    </p>
+                  </div>
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => setActiveStep('code-sync')}
+                      className="px-10 py-4 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-2xl font-black uppercase tracking-widest transition-all border border-slate-700/50"
+                    >
+                      Back to Code
+                    </button>
+                    <button 
+                      onClick={() => setActiveStep('debug')}
+                      className="px-12 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black uppercase tracking-widest transition-all shadow-2xl shadow-emerald-600/30 group"
+                    >
+                      Enter Debug Laboratory <ArrowRight size={18} className="inline ml-2 group-hover:translate-x-1 transition-transform" />
+                    </button>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          {/* Step 5: Deep Debug */}
           {state.activeStep === 'debug' && (
             <div className="flex-1 flex flex-col min-h-0 animate-in fade-in zoom-in-95 duration-700">
                <div className="flex items-center gap-3 mb-6 px-4">
@@ -323,8 +375,14 @@ const App: React.FC = () => {
                     <span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Debug Mode: Augmented Reasoning</span>
                   </div>
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                    Source Context: {state.sourceFiles.length} files synced
+                    Context: {state.sourceFiles.length} Code Files • {state.knowledgeFiles.length} Runbooks
                   </div>
+                  {state.selectedModelId.includes('pro') && (
+                    <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center gap-2">
+                      <Globe size={12} className="text-emerald-400" />
+                      <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Search Grounding Enabled</span>
+                    </div>
+                  )}
                </div>
                <div className="flex-1 min-h-0 bg-[#0c1220] rounded-[3rem] border border-slate-800/60 shadow-inner overflow-hidden">
                   <ChatWindow 
@@ -335,10 +393,10 @@ const App: React.FC = () => {
                     onSelectModel={selectModel}
                     onOpenSettings={() => setSettingsOpen(true)}
                     suggestions={[
-                      "Perform root cause analysis on the primary error spike",
-                      "Which line of code is responsible for this stack trace?",
-                      "Provide a secure code fix for the identified vulnerability",
-                      "Explain the state of the app when this log was generated"
+                      "Are there internal runbooks for this error?",
+                      "Search Stack Overflow for similar performance regressions",
+                      "Check the official documentation for the failing library",
+                      "Does the code sync context explain this crash?"
                     ]}
                     sourceFiles={state.sourceFiles}
                   />
@@ -360,8 +418,7 @@ const App: React.FC = () => {
            {state.stats && (
              <div className="hidden sm:flex items-center gap-6">
                 <StatusItem label="Index" value={`${state.stats.chunkCount} Segments`} />
-                <StatusItem label="Context" value={`${state.sourceFiles.length} Nodes`} />
-                {/* Use current selected model label dynamically */}
+                <StatusItem label="Context" value={`${state.sourceFiles.length} Code • ${state.knowledgeFiles.length} Knowledge`} />
                 <StatusItem label="Model" value={state.selectedModelId.split('-').slice(0, 3).join(' ')} />
              </div>
            )}
@@ -404,18 +461,6 @@ const StatusItem = ({ label, value }: any) => (
     <span className="text-[9px] font-black text-slate-700 uppercase tracking-widest">{label}:</span>
     <span className="text-[10px] font-black text-slate-300 uppercase italic tracking-tight">{value}</span>
   </div>
-);
-
-const NavButton = ({ active, onClick, icon, label }: any) => (
-  <button 
-    onClick={onClick}
-    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-all
-      ${active ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}
-    `}
-  >
-    {icon}
-    <span className="hidden xs:inline">{label}</span>
-  </button>
 );
 
 export default App;

@@ -1,7 +1,8 @@
 
 import React, { useRef, memo, useCallback, useState, useEffect } from 'react';
 import { ChatMessage, ModelOption, CodeFile } from '../types';
-import { Bot, User, Loader2, Link as LinkIcon, Sparkles, Zap, Cpu, ChevronDown, ArrowUp, Command } from 'lucide-react';
+// Added Globe to imports from lucide-react
+import { Bot, User, Loader2, Link as LinkIcon, Sparkles, Zap, Cpu, ChevronDown, ArrowUp, Command, ExternalLink, Globe } from 'lucide-react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { PromptSuggestions } from './PromptSuggestions';
 import { AVAILABLE_MODELS } from '../store/useLogStore';
@@ -56,6 +57,29 @@ const MessageItem = memo(({ msg, sourceFiles }: MessageItemProps) => {
         {!isUser && msg.debugSolutions && msg.debugSolutions.length > 0 && (
           <div className="w-full mt-2">
             <DebugInsightsPanel solutions={msg.debugSolutions} />
+          </div>
+        )}
+
+        {/* Grounding Links (Google Search / Documentation) */}
+        {!isUser && msg.groundingLinks && msg.groundingLinks.length > 0 && (
+          <div className="w-full mt-4 space-y-2 px-1">
+             <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
+               <ExternalLink size={12} /> External Intelligence & Docs
+             </p>
+             <div className="flex flex-wrap gap-2">
+               {msg.groundingLinks.map((link, idx) => (
+                 <a 
+                   key={idx} 
+                   href={link.uri} 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   className="flex items-center gap-2 px-3 py-2 bg-blue-600/5 border border-blue-500/10 rounded-xl hover:bg-blue-600/10 hover:border-blue-500/30 transition-all text-[11px] text-slate-400 hover:text-blue-400 group"
+                 >
+                   <span className="font-bold truncate max-w-[180px]">{link.title}</span>
+                   <ExternalLink size={10} className="group-hover:scale-110 transition-transform" />
+                 </a>
+               ))}
+             </div>
           </div>
         )}
 
@@ -139,7 +163,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
       {/* Header: Sticky to container top, ensured no overlap */}
       <div className="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between bg-slate-950/60 backdrop-blur-xl z-[45] shrink-0">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-600/10 rounded-xl border border-blue-500/20">
+          <div className="p-2 bg-blue-600/10 rounded-xl">
             <Sparkles className="w-5 h-5 text-blue-400" />
           </div>
           <div>
@@ -161,8 +185,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
               }
             `}
           >
-            {activeModel.id.includes('pro') ? <Cpu size={12} /> : <Zap size={12} />}
-            <span className="hidden sm:inline">{activeModel.name}</span>
+            {activeModel.capabilities.includes('search') ? <Globe size={12} className="text-emerald-400" /> : <Zap size={12} />}
+            <span className="hidden sm:inline ml-1">{activeModel.name}</span>
             <ChevronDown size={12} className={`transition-transform duration-300 ${isHeaderMenuOpen ? 'rotate-180' : ''}`} />
           </button>
 
@@ -180,7 +204,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
                     ${selectedModel === model.id ? 'bg-blue-600/10 text-blue-400' : 'hover:bg-white/5 text-slate-400'}
                   `}
                 >
-                  {model.id.includes('pro') ? <Cpu size={14} /> : <Zap size={14} />}
+                  {model.capabilities.includes('search') ? <Globe size={14} className="text-emerald-400" /> : <Zap size={14} />}
                   <span className="text-xs font-bold tracking-tight">{model.name}</span>
                 </button>
               ))}

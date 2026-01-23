@@ -1,15 +1,27 @@
 
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
-import { LogChunk, ChatMessage, SearchIndex, ProcessingStats, CodeFile, SourceLocation, CodeFlowStep, DebugSolution } from "../types";
+import { LogChunk, ChatMessage, SearchIndex, ProcessingStats, CodeFile, SourceLocation, CodeFlowStep, DebugSolution, KnowledgeFile } from "../types";
 
 export class GeminiService {
   private async delay(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  private prepareContext(rankedChunks: LogChunk[], history: ChatMessage[], sourceFiles: CodeFile[], maxContextTokens: number = 25000): string {
+  private prepareContext(rankedChunks: LogChunk[], history: ChatMessage[], sourceFiles: CodeFile[], knowledgeFiles: KnowledgeFile[], maxContextTokens: number = 25000): string {
     let currentTokens = 0;
     const finalContext: string[] = [];
+
+    // Add Knowledge Base Context (Runbooks/Internal Docs)
+    if (knowledgeFiles.length > 0) {
+      finalContext.push("### KNOWLEDGE BASE / INTERNAL RUNBOOKS");
+      for (const kf of knowledgeFiles) {
+        const estimated = (kf.content.length / 4);
+        if (currentTokens + estimated < maxContextTokens * 0.2) {
+          finalContext.push(`DOC: ${kf.name} (${kf.type})\n${kf.content}\n---`);
+          currentTokens += estimated;
+        }
+      }
+    }
 
     // Add Log Segments
     for (const chunk of rankedChunks) {
@@ -145,6 +157,7 @@ export class GeminiService {
     chunks: LogChunk[], 
     index: SearchIndex | null, 
     sourceFiles: CodeFile[],
+    knowledgeFiles: KnowledgeFile[],
     query: string, 
     modelId: string, 
     history: ChatMessage[] = [],
@@ -153,21 +166,21 @@ export class GeminiService {
     if (!index) throw new Error("Search Index not compiled");
     
     const rankedChunks = this.findRelevantChunks(chunks, index, query);
-    const context = this.prepareContext(rankedChunks, history, sourceFiles);
+    const context = this.prepareContext(rankedChunks, history, sourceFiles, knowledgeFiles);
     const recentHistory = history.slice(-5).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
 
     yield { type: 'sources', data: rankedChunks.map(c => c.id) };
 
     const systemInstruction = `
-      DIAGNOSTIC MANDATE: Analyze raw log data and associated source code for debugging and security analysis. 
+      DIAGNOSTIC MANDATE: Analyze raw log data, internal runbooks, and source code for debugging and security analysis. 
       You are an expert developer and SRE performing root cause analysis.
       
       CORE CAPABILITIES:
       1. Pinpoint exact failure lines in stack traces.
       2. Trace code flow across files (Caller -> Callee chain).
-      3. Generate multiple potential solution paths with confidence scores.
-      4. Provide concrete code fix suggestions with before/after diff logic.
-      5. Perform Best Practices check for anti-patterns.
+      3. Use Google Search to find similar Stack Overflow issues or official library documentation if internal context is insufficient.
+      4. Generate solution paths based on internal runbooks AND external best practices.
+      5. Provide concrete code fix suggestions with before/after diff logic.
 
       OUTPUT FORMAT:
       Your response should be high-quality Markdown.
@@ -177,42 +190,32 @@ export class GeminiService {
       [
         {
           "id": "sol-1",
-          "strategy": "Quick Fix / Patch",
+          "strategy": "Strategy name",
           "confidence": 0.95,
-          "rootCause": "Null reference during async state hydration",
+          "rootCause": "Explanation",
           "fixes": [
             {
-              "title": "Add null guard",
-              "filePath": "src/api/handler.ts",
-              "originalCode": "const data = await fetch();\\nprocess(data.user);",
-              "suggestedCode": "const data = await fetch();\\nif (data && data.user) {\\n  process(data.user);\\n}",
-              "explanation": "Prevents crash if fetch returns null.",
-              "bestPractice": "Always validate external API responses before accessing nested properties."
+              "title": "Fix title",
+              "filePath": "path",
+              "originalCode": "code",
+              "suggestedCode": "code",
+              "explanation": "why",
+              "bestPractice": "check"
             }
           ],
-          "bestPractices": ["Defensive Programming", "API Resilience"]
+          "bestPractices": ["Rule 1"]
         }
       ]
       [DEBUG_END]
 
       And a JSON block for the execution trace:
       [ANALYSIS_START]
-      [
-        {
-          "file": "path/to/caller.ts",
-          "line": 42,
-          "method": "startProcess",
-          "description": "Initial call that triggered the workflow",
-          "variableState": { "requestId": "123-abc" }
-        }
-      ]
+      [...]
       [ANALYSIS_END]
-
-      Only include these blocks if relevant to the query.
     `;
 
     const userPrompt = `
-      CONTEXT (LOGS + RELEVANT CODE):
+      CONTEXT (LOGS + RELEVANT CODE + INTERNAL KNOWLEDGE):
       ${context}
       
       PREVIOUS INTERACTION:
@@ -224,12 +227,12 @@ export class GeminiService {
 
     if (modelId.startsWith('gemini')) {
       let accumulatedText = "";
-      const stream = this.callGeminiStream(modelId, systemInstruction, userPrompt, retries);
+      const isPro = modelId.includes('pro');
+      const stream = this.callGeminiStream(modelId, systemInstruction, userPrompt, retries, isPro);
       for await (const chunk of stream) {
         if (chunk.type === 'text') {
           accumulatedText += chunk.data;
           
-          // Check for analysis block
           if (accumulatedText.includes('[ANALYSIS_START]') && accumulatedText.includes('[ANALYSIS_END]')) {
              const startIdx = accumulatedText.indexOf('[ANALYSIS_START]') + '[ANALYSIS_START]'.length;
              const endIdx = accumulatedText.indexOf('[ANALYSIS_END]');
@@ -237,13 +240,11 @@ export class GeminiService {
              try {
                const analysisSteps = JSON.parse(jsonStr);
                yield { type: 'analysis', data: analysisSteps };
-               // Strip analysis block from text
                accumulatedText = accumulatedText.substring(0, accumulatedText.indexOf('[ANALYSIS_START]'));
                yield { type: 'text_replace', data: accumulatedText };
              } catch (e) {}
           }
 
-          // Check for debug block
           if (accumulatedText.includes('[DEBUG_START]') && accumulatedText.includes('[DEBUG_END]')) {
              const startIdx = accumulatedText.indexOf('[DEBUG_START]') + '[DEBUG_START]'.length;
              const endIdx = accumulatedText.indexOf('[DEBUG_END]');
@@ -251,7 +252,6 @@ export class GeminiService {
              try {
                const debugSolutions = JSON.parse(jsonStr);
                yield { type: 'debug_solutions', data: debugSolutions };
-               // Strip debug block from text
                accumulatedText = accumulatedText.substring(0, accumulatedText.indexOf('[DEBUG_START]'));
                yield { type: 'text_replace', data: accumulatedText };
              } catch (e) {}
@@ -260,6 +260,8 @@ export class GeminiService {
           if (!accumulatedText.includes('[ANALYSIS_START]') && !accumulatedText.includes('[DEBUG_START]')) {
             yield chunk;
           }
+        } else if (chunk.type === 'grounding') {
+          yield chunk;
         } else {
           yield chunk;
         }
@@ -267,7 +269,7 @@ export class GeminiService {
     }
   }
 
-  private async *callGeminiStream(model: string, system: string, user: string, retries: number): AsyncGenerator<any> {
+  private async *callGeminiStream(model: string, system: string, user: string, retries: number, useSearch: boolean): AsyncGenerator<any> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     let attempt = 0;
     while (attempt <= retries) {
@@ -278,12 +280,18 @@ export class GeminiService {
           config: { 
             systemInstruction: system,
             temperature: 0.1,
+            tools: useSearch ? [{googleSearch: {}}] : undefined
           }
         });
 
         for await (const chunk of response) {
           const c = chunk as GenerateContentResponse;
           if (c.text) yield { type: 'text', data: c.text };
+          
+          const grounding = c.candidates?.[0]?.groundingMetadata?.groundingChunks;
+          if (grounding) {
+            yield { type: 'grounding', data: grounding };
+          }
         }
         return;
       } catch (error: any) {

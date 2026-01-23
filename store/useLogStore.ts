@@ -1,6 +1,6 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, SystemMetrics, TimeBucket, ModelOption, TestReport, RegressiveReport, TestCase, CodeFile, PipelineStep } from '../types';
+import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, SystemMetrics, TimeBucket, ModelOption, TestReport, RegressiveReport, TestCase, CodeFile, PipelineStep, KnowledgeFile } from '../types';
 import { parseLogFile, chunkLogEntries, buildSearchIndex } from '../utils/logParser';
 import JSZip from 'jszip';
 
@@ -17,7 +17,7 @@ const initialMetrics: SystemMetrics = {
 
 export const AVAILABLE_MODELS: ModelOption[] = [
   { id: 'gemini-3-flash-preview', provider: 'google-gemini', name: 'Gemini 3 Flash', description: 'Ultra-fast analysis.', capabilities: ['speed', 'context'], status: 'active' },
-  { id: 'gemini-3-pro-preview', provider: 'google-gemini', name: 'Gemini 3 Pro', description: 'High-reasoning debugging.', capabilities: ['logic', 'context'], status: 'active' }
+  { id: 'gemini-3-pro-preview', provider: 'google-gemini', name: 'Gemini 3 Pro', description: 'High-reasoning debugging & Google Search.', capabilities: ['logic', 'context', 'search'], status: 'active' }
 ];
 
 export function useLogStore() {
@@ -31,6 +31,7 @@ export function useLogStore() {
       logs: [],
       chunks: [],
       sourceFiles: [],
+      knowledgeFiles: [],
       searchIndex: null,
       stats: null,
       messages: [],
@@ -107,6 +108,7 @@ export function useLogStore() {
       logs: [], 
       chunks: [], 
       sourceFiles: [], 
+      knowledgeFiles: [],
       searchIndex: null, 
       suggestions: [], 
       lastSaved: null,
@@ -116,6 +118,31 @@ export function useLogStore() {
 
   const clearSourceFiles = useCallback(() => {
     setState(s => ({ ...s, sourceFiles: [] }));
+  }, []);
+
+  const clearKnowledgeFiles = useCallback(() => {
+    setState(s => ({ ...s, knowledgeFiles: [] }));
+  }, []);
+
+  const processKnowledgeFiles = useCallback(async (files: File[]) => {
+    setProcessing(true);
+    const docs: KnowledgeFile[] = [];
+    for (const file of files) {
+      const content = await file.text();
+      docs.push({
+        id: `kb-${Math.random().toString(36).substr(2, 9)}`,
+        name: file.name,
+        content,
+        type: file.name.toLowerCase().includes('runbook') ? 'runbook' : 'documentation',
+        size: content.length
+      });
+    }
+    setState(s => ({ 
+      ...s, 
+      knowledgeFiles: [...s.knowledgeFiles, ...docs], 
+      isProcessing: false,
+      activeStep: 'debug'
+    }));
   }, []);
 
   const processSourceFiles = useCallback(async (files: File[]) => {
@@ -156,7 +183,7 @@ export function useLogStore() {
       sourceFiles: [...s.sourceFiles, ...codeFiles], 
       isProcessing: false, 
       ingestionProgress: 100,
-      activeStep: 'debug' // Move to debug step once code is synced
+      activeStep: 'knowledge' // Move to knowledge step once code is synced
     }));
   }, []);
 
@@ -203,7 +230,7 @@ export function useLogStore() {
         ingestionProgress: 100,
         messages: [],
         suggestions: [],
-        activeStep: 'analysis' // Automatically move to analysis step
+        activeStep: 'analysis' 
       }));
     } catch (err) {
       console.error("Ingestion error", err);
@@ -227,7 +254,9 @@ export function useLogStore() {
     state,
     processNewFile,
     processSourceFiles,
+    processKnowledgeFiles,
     clearSourceFiles,
+    clearKnowledgeFiles,
     addMessage: (msg: ChatMessage) => setState(s => ({ ...s, messages: [...s.messages, msg] })),
     updateLastMessageChunk: (chunk: string) => setState(s => {
       const messages = [...s.messages];
@@ -239,6 +268,18 @@ export function useLogStore() {
       const messages = [...s.messages];
       const last = messages[messages.length - 1];
       if (last) messages[messages.length - 1] = { ...last, sources };
+      return { ...s, messages };
+    }),
+    setLastMessageGrounding: (grounding: any[]) => setState(s => {
+      const messages = [...s.messages];
+      const last = messages[messages.length - 1];
+      if (last) {
+        const links = grounding.map((chunk: any) => ({
+          title: chunk.web?.title || chunk.web?.uri || 'Source',
+          uri: chunk.web?.uri
+        })).filter((l: any) => l.uri);
+        messages[messages.length - 1] = { ...last, groundingLinks: links };
+      }
       return { ...s, messages };
     }),
     finishLastMessage: () => setState(s => {
