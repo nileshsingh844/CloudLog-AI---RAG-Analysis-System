@@ -14,7 +14,8 @@
     "@google/genai": "^1.38.0",
     "lucide-react": "^0.562.0",
     "recharts": "^3.7.0",
-    "react-virtuoso": "^4.12.3"
+    "react-virtuoso": "^4.12.3",
+    "jszip": "^3.10.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

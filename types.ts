@@ -18,6 +18,40 @@ export interface FileInfo {
   category: string;
 }
 
+export interface SourceLocation {
+  filePath: string;
+  line: number;
+  method?: string;
+  context?: string;
+  isLibrary?: boolean;
+}
+
+export interface CodeFlowStep {
+  file: string;
+  line: number;
+  method: string;
+  description: string;
+  variableState?: Record<string, string>;
+}
+
+export interface CodeFix {
+  title: string;
+  filePath: string;
+  originalCode: string;
+  suggestedCode: string;
+  explanation: string;
+  bestPractice?: string;
+}
+
+export interface DebugSolution {
+  id: string;
+  strategy: string;
+  confidence: number;
+  rootCause: string;
+  fixes: CodeFix[];
+  bestPractices: string[];
+}
+
 export interface LogEntry {
   id: string;
   timestamp: Date | null;
@@ -28,8 +62,16 @@ export interface LogEntry {
     hasStackTrace: boolean;
     signature: string;
     occurrenceCount?: number;
+    sourceLocations?: SourceLocation[];
     [key: string]: any;
   };
+}
+
+export interface CodeFile {
+  path: string;
+  content: string;
+  language: string;
+  size: number;
 }
 
 export interface SearchIndex {
@@ -59,6 +101,7 @@ export interface ProcessingStats {
   fileName: string;
   chunkCount: number;
   fileInfo?: FileInfo;
+  inferredFiles: string[];
 }
 
 export interface SystemMetrics {
@@ -70,35 +113,6 @@ export interface SystemMetrics {
   memoryUsage: number;
 }
 
-export interface TestCase {
-  name: string;
-  category: 'Parser' | 'RAG' | 'Performance' | 'Security';
-  status: 'passed' | 'failed' | 'running';
-  duration: string;
-  details: string;
-}
-
-export interface RegressiveReport {
-  timestamp: Date;
-  overallStatus: 'passed' | 'failed';
-  testCases: TestCase[];
-  benchmarks: {
-    indexingSpeed: string;
-    p95Latency: string;
-    memoryEfficiency: string;
-    tokenCoverage: string;
-  };
-}
-
-export interface TestReport {
-  timestamp: Date;
-  throughput: string;
-  compressionRatio: string;
-  ragAccuracy: string;
-  loadTime: string;
-  status: 'passed' | 'failed';
-}
-
 export type LLMProvider = 'google-gemini' | 'openai' | 'anthropic' | 'mistral';
 
 export interface ModelOption {
@@ -106,8 +120,8 @@ export interface ModelOption {
   provider: LLMProvider;
   name: string;
   description: string;
-  capabilities: ('logic' | 'speed' | 'vision' | 'context')[];
-  status: 'active' | 'requires-config' | 'experimental';
+  capabilities: ('speed' | 'logic' | 'context')[];
+  status: 'active' | 'requires-config';
 }
 
 export interface ChatMessage {
@@ -116,9 +130,39 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   sources?: string[];
+  codeSnippets?: SourceLocation[];
+  analysisSteps?: CodeFlowStep[];
+  debugSolutions?: DebugSolution[];
   isLoading?: boolean;
   modelId?: string;
   provider?: LLMProvider;
+}
+
+export type PipelineStep = 'ingestion' | 'analysis' | 'code-sync' | 'debug';
+
+export interface TestCase {
+  name: string;
+  category: string;
+  details: string;
+  duration: string;
+  status: 'passed' | 'running' | 'failed';
+}
+
+export interface RegressiveReport {
+  benchmarks: {
+    indexingSpeed: string;
+    p95Latency: string;
+    memoryEfficiency: string;
+    tokenCoverage: string;
+  };
+  testCases: TestCase[];
+}
+
+export interface TestReport {
+  throughput: string;
+  compressionRatio: string;
+  ragAccuracy: string;
+  loadTime: string;
 }
 
 export interface AppState {
@@ -128,12 +172,14 @@ export interface AppState {
   ingestionProgress: number;
   logs: LogEntry[];
   chunks: LogChunk[];
+  sourceFiles: CodeFile[];
   searchIndex: SearchIndex | null;
   stats: ProcessingStats | null;
   messages: ChatMessage[];
   selectedModelId: string;
   metrics: SystemMetrics;
-  viewMode: 'diagnostic' | 'operator';
+  viewMode: 'diagnostic' | 'operator' | 'code';
+  activeStep: PipelineStep;
   isSettingsOpen: boolean;
   testReport: TestReport | null;
   regressiveReport: RegressiveReport | null;

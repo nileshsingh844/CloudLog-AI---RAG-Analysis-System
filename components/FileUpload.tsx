@@ -1,6 +1,6 @@
 
 import React, { useRef, useState } from 'react';
-import { Upload, CheckCircle, Database, Shield, Zap, FileText, Loader2 } from 'lucide-react';
+import { Upload, CheckCircle, Database, Shield, Zap, FileText, Loader2, Cpu } from 'lucide-react';
 
 interface FileUploadProps {
   onFileSelect: (file: File) => void;
@@ -46,9 +46,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className={`relative group border-2 border-dashed rounded-3xl p-6 sm:p-10 transition-all duration-500 flex flex-col items-center justify-center space-y-4 sm:space-y-6 overflow-hidden
-        ${fileName ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-800 bg-slate-900/40'}
-        ${isDragging ? 'border-blue-500 bg-blue-500/5 scale-[1.01] shadow-2xl shadow-blue-500/10' : 'hover:border-slate-700 hover:bg-slate-800/40'}
+      className={`relative group border-2 border-dashed rounded-[3rem] p-8 sm:p-14 transition-all duration-700 flex flex-col items-center justify-center space-y-6 sm:space-y-8 overflow-hidden
+        ${fileName ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-800 bg-slate-900/40 shadow-inner'}
+        ${isDragging ? 'border-blue-500 bg-blue-500/10 scale-[1.02] shadow-2xl shadow-blue-500/20' : 'hover:border-slate-700 hover:bg-slate-800/40'}
       `}
     >
       <input 
@@ -61,90 +61,90 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
       />
       
       {isProcessing ? (
-        <div className="flex flex-col items-center space-y-6 w-full max-w-[280px]">
+        <div className="flex flex-col items-center space-y-8 w-full max-w-[340px] animate-in fade-in duration-500">
           <div className="relative">
-            <div className="absolute inset-0 bg-blue-500/20 blur-2xl rounded-full"></div>
-            <div className="relative w-20 h-20 bg-slate-900 rounded-2xl border border-slate-700 flex items-center justify-center shadow-2xl">
-              <Database className="w-8 h-8 text-blue-400" />
-              <div className="absolute -bottom-2 -right-2 bg-blue-600 p-1.5 rounded-lg border-2 border-slate-900 shadow-xl">
-                <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
-              </div>
+            <div className="absolute inset-0 bg-blue-500/30 blur-3xl rounded-full animate-pulse"></div>
+            <div className="relative w-24 h-24 bg-slate-900 rounded-3xl border border-slate-700 flex items-center justify-center shadow-2xl overflow-hidden">
+               <Cpu className="w-10 h-10 text-blue-400" />
+               <div className="absolute inset-0 border-2 border-blue-500/20 animate-pulse rounded-3xl" />
             </div>
           </div>
           
-          <div className="w-full space-y-3">
+          <div className="w-full space-y-4">
             <div className="flex justify-between items-end">
               <div>
-                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-0.5">Neural Indexing</p>
-                <p className="text-xs text-slate-400 font-medium italic">Partitioning stream...</p>
+                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-1">Indexing RAG Node</p>
+                <p className="text-xs text-slate-500 font-bold italic">Analyzing logical patterns...</p>
               </div>
-              <span className="text-lg font-black text-blue-100 italic tracking-tighter">{ingestionProgress}%</span>
+              <span className="text-2xl font-black text-blue-100 italic tracking-tighter">{ingestionProgress}%</span>
             </div>
-            <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+            <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden p-1 border border-slate-800/50">
                <div 
-                className="h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full transition-all duration-700 ease-out shadow-[0_0_15px_rgba(59,130,246,0.5)]" 
+                className="h-full bg-gradient-to-r from-blue-700 via-blue-500 to-indigo-400 rounded-full transition-all duration-700 ease-out shadow-[0_0_20px_rgba(59,130,246,0.6)]" 
                 style={{ width: `${ingestionProgress}%` }}
                ></div>
             </div>
           </div>
-          <div className="flex items-center gap-2 px-4 py-2 bg-blue-500/5 border border-blue-500/20 rounded-xl">
-             <Zap size={12} className="text-blue-400 animate-pulse" />
-             <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Enterprise Class Processing</p>
+          <div className="flex items-center gap-2 px-5 py-2.5 bg-blue-500/10 border border-blue-500/20 rounded-2xl shadow-xl">
+             <div className="w-2 h-2 bg-blue-500 rounded-full animate-ping" />
+             <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Optimized Contextual Processing</p>
           </div>
         </div>
       ) : fileName ? (
-        <div className="flex flex-col items-center space-y-4 animate-in fade-in zoom-in duration-500">
+        <div className="flex flex-col items-center space-y-6 animate-in zoom-in duration-700">
           <div className="relative">
-             <div className="absolute inset-0 bg-emerald-500/20 blur-xl rounded-full"></div>
-             <div className="relative bg-emerald-500/20 p-5 rounded-[24px] border border-emerald-500/30">
-                <CheckCircle className="w-10 h-10 text-emerald-400" />
+             <div className="absolute inset-0 bg-emerald-500/20 blur-3xl rounded-full"></div>
+             <div className="relative bg-emerald-500/10 p-7 rounded-[2rem] border border-emerald-500/30 shadow-2xl shadow-emerald-500/10">
+                <CheckCircle className="w-12 h-12 text-emerald-400" />
              </div>
           </div>
-          <div className="text-center px-4">
-            <p className="text-slate-100 font-black text-lg tracking-tight truncate max-w-[240px] italic uppercase">{fileName}</p>
-            <p className="text-slate-500 text-[11px] font-black uppercase tracking-[0.3em] mt-1.5 flex items-center justify-center gap-2">
-               <Shield size={10} className="text-emerald-500" />
-               Persistence Verified
-            </p>
+          <div className="text-center px-6">
+            <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-2">Diagnostic Ready</h4>
+            <p className="text-slate-100 font-black text-2xl tracking-tight truncate max-w-[320px] italic uppercase">{fileName}</p>
+            <div className="flex items-center justify-center gap-3 mt-4">
+               <div className="px-3 py-1 bg-slate-900 border border-slate-800 rounded-lg text-[9px] font-black text-slate-500 uppercase tracking-widest">Persistence Cache Active</div>
+            </div>
           </div>
           <button 
             onClick={(e) => {
               e.stopPropagation();
               fileInputRef.current?.click();
             }}
-            className="px-6 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-slate-700/50 mt-2 z-20"
+            className="px-8 py-3 bg-slate-800/60 hover:bg-slate-700 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border border-slate-700/50 mt-4 z-20 shadow-xl"
           >
-            Switch Diagnostic Set
+            Switch Log Stream
           </button>
         </div>
       ) : (
         <>
-          <div className="relative group-hover:scale-110 transition-transform duration-500">
-            <div className="absolute inset-0 bg-blue-500/20 blur-2xl rounded-full group-hover:bg-blue-500/30 transition-colors"></div>
-            <div className="relative bg-slate-900 border border-slate-800 p-6 rounded-[28px] shadow-2xl">
-              <Upload className="w-10 h-10 text-blue-400" />
+          <div className="relative group-hover:scale-110 transition-transform duration-700">
+            <div className="absolute inset-0 bg-blue-600/20 blur-3xl rounded-full group-hover:bg-blue-600/40 transition-colors"></div>
+            <div className="relative bg-slate-900 border border-slate-800 p-8 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+              <Upload className="w-12 h-12 text-blue-500" />
             </div>
-            <div className="absolute -bottom-2 -right-2 bg-slate-800 p-2 rounded-xl border border-slate-700 shadow-xl">
-              <FileText className="w-4 h-4 text-slate-400" />
-            </div>
-          </div>
-          <div className="text-center px-6">
-            <h4 className="text-slate-100 font-black text-xl italic uppercase tracking-tight">Enterprise Ingestion</h4>
-            <p className="text-slate-500 text-xs font-medium mt-1 leading-relaxed">Multi-GB diagnostic streams processed with <span className="text-blue-400">zero-buffer</span> RAG indexing.</p>
-          </div>
-          <div className="flex flex-wrap justify-center gap-3">
-            <div className="px-3 py-1 bg-slate-800/80 rounded-lg text-[9px] text-slate-400 uppercase tracking-widest font-black border border-slate-700/50 flex items-center gap-2">
-              <Shield size={10} className="text-blue-500" /> 800+ Formats
-            </div>
-            <div className="px-3 py-1 bg-slate-800/80 rounded-lg text-[9px] text-slate-400 uppercase tracking-widest font-black border border-slate-700/50">
-              Low Latency RAG
+            <div className="absolute -bottom-3 -right-3 bg-blue-600 p-2.5 rounded-2xl border-4 border-slate-900 shadow-2xl">
+              <FileText className="w-5 h-5 text-white" />
             </div>
           </div>
-          <div className="mt-2 text-[10px] text-slate-600 font-bold uppercase tracking-[0.2em] animate-pulse">
-            Drop file or click to browse
+          <div className="text-center px-10 space-y-3">
+            <h4 className="text-slate-100 font-black text-2xl italic uppercase tracking-tighter">Enterprise Feed</h4>
+            <p className="text-slate-500 text-sm font-medium leading-relaxed max-w-sm mx-auto">Seamlessly ingest massive diagnostic streams into our neural RAG engine with <span className="text-blue-500 font-bold">zero latency</span> overhead.</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-4">
+            <Pill icon={<Shield size={12} className="text-blue-500" />} label="800+ Dialects" />
+            <Pill icon={<Database size={12} className="text-blue-500" />} label="S3 / Cloud Logs" />
+          </div>
+          <div className="mt-4 text-[11px] text-slate-600 font-black uppercase tracking-[0.3em] animate-pulse">
+            Drop file or click to sync
           </div>
         </>
       )}
     </div>
   );
 };
+
+const Pill = ({ icon, label }: any) => (
+  <div className="px-4 py-1.5 bg-slate-800/50 rounded-xl text-[10px] text-slate-400 uppercase tracking-widest font-black border border-slate-700/50 flex items-center gap-2.5 shadow-lg">
+    {icon} {label}
+  </div>
+);

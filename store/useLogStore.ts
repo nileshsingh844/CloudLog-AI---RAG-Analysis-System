@@ -1,9 +1,10 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, SystemMetrics, TimeBucket, ModelOption, TestReport, RegressiveReport, TestCase } from '../types';
+import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, SystemMetrics, TimeBucket, ModelOption, TestReport, RegressiveReport, TestCase, CodeFile, PipelineStep } from '../types';
 import { parseLogFile, chunkLogEntries, buildSearchIndex } from '../utils/logParser';
+import JSZip from 'jszip';
 
-const STORAGE_KEY = 'cloudlog_ai_session';
+const STORAGE_KEY = 'cloudlog_ai_session_v3';
 
 const initialMetrics: SystemMetrics = {
   queryLatency: [],
@@ -15,51 +16,12 @@ const initialMetrics: SystemMetrics = {
 };
 
 export const AVAILABLE_MODELS: ModelOption[] = [
-  {
-    id: 'gemini-3-flash-preview',
-    provider: 'google-gemini',
-    name: 'Gemini 3 Flash',
-    description: 'Ultra-fast analysis optimized for high-volume logs.',
-    capabilities: ['speed', 'context'],
-    status: 'active'
-  },
-  {
-    id: 'gemini-3-pro-preview',
-    provider: 'google-gemini',
-    name: 'Gemini 3 Pro',
-    description: 'High-reasoning model for complex root cause analysis.',
-    capabilities: ['logic', 'context'],
-    status: 'active'
-  },
-  {
-    id: 'gemini-2.5-flash-lite-latest',
-    provider: 'google-gemini',
-    name: 'Gemini 2.5 Flash Lite',
-    description: 'Cost-effective model for routine log scanning.',
-    capabilities: ['speed'],
-    status: 'active'
-  },
-  {
-    id: 'gpt-4o',
-    provider: 'openai',
-    name: 'GPT-4o',
-    description: 'Omni model, high intelligence and high speed.',
-    capabilities: ['logic', 'speed', 'context'],
-    status: 'active'
-  },
-  {
-    id: 'gpt-4o-mini',
-    provider: 'openai',
-    name: 'GPT-4o Mini',
-    description: 'Lightweight intelligent model for fast processing.',
-    capabilities: ['speed'],
-    status: 'active'
-  }
+  { id: 'gemini-3-flash-preview', provider: 'google-gemini', name: 'Gemini 3 Flash', description: 'Ultra-fast analysis.', capabilities: ['speed', 'context'], status: 'active' },
+  { id: 'gemini-3-pro-preview', provider: 'google-gemini', name: 'Gemini 3 Pro', description: 'High-reasoning debugging.', capabilities: ['logic', 'context'], status: 'active' }
 ];
 
 export function useLogStore() {
   const [state, setState] = useState<AppState>(() => {
-    // Initial Hydration from LocalStorage
     const saved = localStorage.getItem(STORAGE_KEY);
     const baseState: AppState = {
       apiKey: null,
@@ -68,12 +30,14 @@ export function useLogStore() {
       ingestionProgress: 0,
       logs: [],
       chunks: [],
+      sourceFiles: [],
       searchIndex: null,
       stats: null,
       messages: [],
       selectedModelId: 'gemini-3-flash-preview',
       metrics: initialMetrics,
       viewMode: 'diagnostic',
+      activeStep: 'ingestion',
       isSettingsOpen: false,
       testReport: null,
       regressiveReport: null,
@@ -88,7 +52,6 @@ export function useLogStore() {
         return {
           ...baseState,
           ...parsed,
-          // Ensure dates are correctly parsed back
           messages: (parsed.messages || []).map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) })),
           lastSaved: parsed.lastSaved ? new Date(parsed.lastSaved) : null,
           stats: parsed.stats ? {
@@ -99,360 +62,208 @@ export function useLogStore() {
             }
           } : null
         };
-      } catch (e) {
-        console.error("Failed to restore session", e);
-      }
+      } catch (e) { console.error("Restore error", e); }
     }
     return baseState;
   });
 
-  // Fixed NodeJS.Timeout type error by using ReturnType<typeof setTimeout> for cross-environment compatibility.
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Persistence Effect
   useEffect(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    
-    // Don't save if we are in the middle of a massive ingestion
     if (state.isProcessing) return;
-
-    setState(s => ({ ...s, saveStatus: 'saving' }));
-
     saveTimeoutRef.current = setTimeout(() => {
       try {
         const toSave = {
-          messages: state.messages.filter(m => !m.isLoading), // Don't save temporary loading states
+          messages: state.messages.filter(m => !m.isLoading),
           stats: state.stats,
           selectedModelId: state.selectedModelId,
           viewMode: state.viewMode,
+          activeStep: state.activeStep,
           suggestions: state.suggestions,
           lastSaved: new Date().toISOString()
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-        setState(s => ({ ...s, saveStatus: 'saved', lastSaved: new Date() }));
-        
-        // Return to idle after a brief indicator duration
-        setTimeout(() => setState(s => ({ ...s, saveStatus: 'idle' })), 3000);
-      } catch (e) {
-        console.error("Failed to save session", e);
-        setState(s => ({ ...s, saveStatus: 'error' }));
-      }
-    }, 1000);
-
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, [state.messages.length, state.stats, state.selectedModelId, state.viewMode, state.suggestions]);
+        setState(s => ({ ...s, saveStatus: 'idle' }));
+      } catch (e) { console.error("Save error", e); }
+    }, 2000);
+    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
+  }, [state.messages.length, state.stats, state.selectedModelId, state.viewMode, state.activeStep]);
 
   const setProcessing = useCallback((val: boolean) => setState(s => ({ ...s, isProcessing: val })), []);
   const setGeneratingSuggestions = useCallback((val: boolean) => setState(s => ({ ...s, isGeneratingSuggestions: val })), []);
   const setIngestionProgress = useCallback((val: number) => setState(s => ({ ...s, ingestionProgress: val })), []);
-  const setViewMode = useCallback((mode: 'diagnostic' | 'operator') => setState(s => ({ ...s, viewMode: mode })), []);
+  const setViewMode = useCallback((mode: AppState['viewMode']) => setState(s => ({ ...s, viewMode: mode })), []);
+  const setActiveStep = useCallback((step: PipelineStep) => setState(s => ({ ...s, activeStep: step })), []);
   const setSettingsOpen = useCallback((open: boolean) => setState(s => ({ ...s, isSettingsOpen: open })), []);
-  const clearTestReport = useCallback(() => setState(s => ({ ...s, testReport: null })), []);
-  const clearRegressiveReport = useCallback(() => setState(s => ({ ...s, regressiveReport: null })), []);
   const setSuggestions = useCallback((suggestions: string[]) => setState(s => ({ ...s, suggestions })), []);
-
-  const openKeyManager = useCallback(async () => {
-    if ((window as any).aistudio?.openSelectKey) {
-      await (window as any).aistudio.openSelectKey();
-    }
-  }, []);
 
   const clearSession = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
-    setState(s => ({
-      ...s,
-      messages: [],
-      stats: null,
-      logs: [],
-      chunks: [],
-      searchIndex: null,
-      suggestions: [],
-      lastSaved: null
+    setState(s => ({ 
+      ...s, 
+      messages: [], 
+      stats: null, 
+      logs: [], 
+      chunks: [], 
+      sourceFiles: [], 
+      searchIndex: null, 
+      suggestions: [], 
+      lastSaved: null,
+      activeStep: 'ingestion'
     }));
   }, []);
 
-  const selectModel = useCallback((modelId: string) => {
-    setState(s => ({ ...s, selectedModelId: modelId }));
+  const clearSourceFiles = useCallback(() => {
+    setState(s => ({ ...s, sourceFiles: [] }));
   }, []);
 
-  const processNewFile = useCallback(async (file: File, isStressTest: boolean = false) => {
-    const startTime = performance.now();
+  const processSourceFiles = useCallback(async (files: File[]) => {
+    setProcessing(true);
+    setIngestionProgress(10);
+    const codeFiles: CodeFile[] = [];
+
+    for (const file of files) {
+      if (file.name.endsWith('.zip')) {
+        const zip = await JSZip.loadAsync(file);
+        const entries = Object.keys(zip.files);
+        for (let i = 0; i < entries.length; i++) {
+          const entry = zip.files[entries[i]];
+          if (!entry.dir && !entry.name.startsWith('__MACOSX')) {
+            const content = await entry.async('string');
+            codeFiles.push({
+              path: entry.name,
+              content,
+              language: entry.name.split('.').pop() || 'text',
+              size: content.length
+            });
+          }
+          setIngestionProgress(10 + Math.round((i / entries.length) * 80));
+        }
+      } else {
+        const content = await file.text();
+        codeFiles.push({
+          path: file.name,
+          content,
+          language: file.name.split('.').pop() || 'text',
+          size: content.length
+        });
+      }
+    }
+
+    setState(s => ({ 
+      ...s, 
+      sourceFiles: [...s.sourceFiles, ...codeFiles], 
+      isProcessing: false, 
+      ingestionProgress: 100,
+      activeStep: 'debug' // Move to debug step once code is synced
+    }));
+  }, []);
+
+  const processNewFile = useCallback(async (file: File) => {
     setProcessing(true);
     setIngestionProgress(0);
     
-    const CHUNK_SIZE = 32 * 1024 * 1024; // 32MB chunks
-    let offset = 0;
-    let allEntries: LogEntry[] = [];
-    let leftover = '';
-
-    const isMassive = file.size > 1024 * 1024 * 1024 || isStressTest;
-    const compactionThreshold = isMassive ? 1000 : 50000;
-
     try {
-      const loopLimit = isStressTest ? 1 : file.size;
-      let finalFileInfo = null;
-      
-      while (offset < loopLimit) {
-        const slice = file.slice(offset, offset + CHUNK_SIZE);
-        const text = leftover + await slice.text();
-        const lastNewline = text.lastIndexOf('\n');
-        const toProcess = lastNewline === -1 ? text : text.substring(0, lastNewline);
-        leftover = lastNewline === -1 ? '' : text.substring(lastNewline + 1);
-
-        const { entries: chunkEntries, fileInfo } = parseLogFile(toProcess, file.name, allEntries.length);
-        if (!finalFileInfo) finalFileInfo = fileInfo;
-        
-        if (allEntries.length > compactionThreshold) {
-           const compacted: LogEntry[] = [];
-           const signatureMap = new Map<string, LogEntry>();
-
-           chunkEntries.forEach(entry => {
-             if (entry.metadata.hasStackTrace) {
-                compacted.push(entry);
-             } else {
-                const sig = entry.metadata.signature;
-                if (signatureMap.has(sig)) {
-                  const existing = signatureMap.get(sig)!;
-                  existing.metadata.occurrenceCount = (existing.metadata.occurrenceCount || 1) + 1;
-                } else {
-                  signatureMap.set(sig, entry);
-                  compacted.push(entry);
-                }
-             }
-           });
-           allEntries = allEntries.concat(compacted);
-        } else {
-           allEntries = allEntries.concat(chunkEntries);
-        }
-        
-        offset += CHUNK_SIZE;
-        setIngestionProgress(Math.min(95, Math.round((offset / file.size) * 100)));
-        await new Promise(r => setTimeout(r, 0));
-      }
-
-      const chunks = chunkLogEntries(allEntries);
+      const content = await file.text();
+      const { entries, fileInfo } = parseLogFile(content, file.name);
+      const chunks = chunkLogEntries(entries);
       const searchIndex = buildSearchIndex(chunks);
-      
+
       const severities: Record<Severity, number> = {
         [Severity.FATAL]: 0, [Severity.ERROR]: 0, [Severity.WARN]: 0,
         [Severity.INFO]: 0, [Severity.DEBUG]: 0, [Severity.UNKNOWN]: 0,
       };
 
-      let startTS: Date | null = allEntries[0]?.timestamp || new Date(Date.now() - 3600000);
-      let endTS: Date | null = allEntries[allEntries.length - 1]?.timestamp || new Date();
-
-      allEntries.forEach(log => {
-        const count = log.metadata.occurrenceCount || 1;
-        severities[log.severity] += count;
+      const inferredFilesSet = new Set<string>();
+      entries.forEach(log => {
+        severities[log.severity] += 1;
+        log.metadata.sourceLocations?.forEach(loc => inferredFilesSet.add(loc.filePath));
       });
 
-      const timeBuckets: TimeBucket[] = [];
-      const bucketCount = 60;
-      const duration = endTS.getTime() - startTS.getTime();
-      const bucketSize = Math.max(1, duration / bucketCount);
-
-      for (let i = 0; i < bucketCount; i++) {
-        timeBuckets.push({
-          time: new Date(startTS.getTime() + (i * bucketSize)).toISOString(),
-          count: Math.floor(Math.random() * 5000),
-          errorCount: Math.floor(Math.random() * 200)
-        });
-      }
-
       const stats: ProcessingStats = {
-        totalEntries: isMassive ? 54209123 : allEntries.length,
+        totalEntries: entries.length,
         severities,
-        timeRange: { start: startTS, end: endTS },
-        timeBuckets, 
-        fileSize: isMassive ? 5 * 1024 * 1024 * 1024 : file.size,
-        fileName: isMassive ? "enterprise-5gb-stream.log" : file.name,
+        timeRange: { start: entries[0]?.timestamp || null, end: entries[entries.length - 1]?.timestamp || null },
+        timeBuckets: [],
+        fileSize: file.size,
+        fileName: file.name,
         chunkCount: chunks.length,
-        fileInfo: finalFileInfo || undefined
+        fileInfo,
+        inferredFiles: Array.from(inferredFilesSet)
       };
 
-      const endTime = performance.now();
-      
       setState(s => ({
         ...s,
-        logs: allEntries,
+        logs: entries,
         chunks,
         searchIndex,
         stats,
         isProcessing: false,
         ingestionProgress: 100,
         messages: [],
-        suggestions: [], 
-        metrics: {
-          ...s.metrics,
-          indexingLatency: Math.round(endTime - startTime),
-          memoryUsage: Math.round(allEntries.length * 0.08)
-        }
+        suggestions: [],
+        activeStep: 'analysis' // Automatically move to analysis step
       }));
     } catch (err) {
-      console.error("Critical Ingestion Failure:", err);
+      console.error("Ingestion error", err);
       setProcessing(false);
     }
-  }, [setProcessing, setIngestionProgress]);
-
-  const runRegressiveSuite = useCallback(async () => {
-    setProcessing(true);
-    setIngestionProgress(0);
-    
-    const steps: TestCase[] = [
-      { name: "Parser Accuracy Test", category: 'Parser', status: 'running', duration: '0ms', details: 'Analyzing 54M lines for timestamp/severity coherence...' },
-      { name: "RAG Retrieval Relevance", category: 'RAG', status: 'running', duration: '0ms', details: 'Executing needle-in-haystack queries across 5GB offsets...' },
-      { name: "Performance Load Benchmark", category: 'Performance', status: 'running', duration: '0ms', details: 'Measuring throughput under massive I/O load...' },
-      { name: "Security Vulnerability Scan", category: 'Security', status: 'running', duration: '0ms', details: 'Scanning for SQLi, XSS, and unauthorized access patterns...' }
-    ];
-
-    setState(s => ({ 
-      ...s, 
-      regressiveReport: { 
-        timestamp: new Date(), 
-        overallStatus: 'passed', 
-        testCases: steps,
-        benchmarks: { indexingSpeed: '0 MB/s', p95Latency: '0ms', memoryEfficiency: '0%', tokenCoverage: '0%' }
-      } 
-    }));
-
-    for (let i = 0; i < steps.length; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      steps[i].status = 'passed';
-      steps[i].duration = `${Math.floor(Math.random() * 300) + 200}ms`;
-      steps[i].details = i === 0 ? "99.998% Accuracy. Correctly identified 54.2M timestamps and 12 severity variants." : 
-                         i === 1 ? "99.4% Recall. Successfully retrieved 14/15 'needle' segments from the 4.2GB mark." : 
-                         i === 2 ? "1.24 GB/s throughput sustained. Memory compacted to 142MB from 5GB raw stream." : 
-                         "Detected 42 potential SQLi attempts and 12 Admin Access anomalies. Signatures isolated.";
-      
-      setState(s => ({ 
-        ...s, 
-        ingestionProgress: Math.round(((i + 1) / steps.length) * 100),
-        regressiveReport: s.regressiveReport ? { ...s.regressiveReport, testCases: [...steps] } : null
-      }));
-    }
-
-    setState(s => ({ 
-      ...s, 
-      isProcessing: false,
-      regressiveReport: s.regressiveReport ? { 
-        ...s.regressiveReport, 
-        benchmarks: {
-          indexingSpeed: '1.24 GB/s',
-          p95Latency: '0.82s',
-          memoryEfficiency: '98.7%',
-          tokenCoverage: '100.0%'
-        }
-      } : null 
-    }));
   }, []);
 
-  const simulateStressTest = useCallback(async () => {
-    setProcessing(true);
-    setIngestionProgress(0);
-    
-    const steps = 30;
-    for (let i = 1; i <= steps; i++) {
-      await new Promise(r => setTimeout(r, 80));
-      setIngestionProgress(Math.round((i / steps) * 100));
-    }
-
-    const report: TestReport = {
-      timestamp: new Date(),
-      throughput: "1.24 GB/s",
-      compressionRatio: "98.7%",
-      ragAccuracy: "99.4%",
-      loadTime: "1.8s",
-      status: 'passed'
-    };
-
-    const mockFile = new File([""], "enterprise-5gb-stream.log");
-    await processNewFile(mockFile, true);
-    
-    setState(s => ({ ...s, testReport: report }));
-  }, [processNewFile]);
-
-  const recordQueryMetric = useCallback((latency: number, isError: boolean = false, isRateLimit: boolean = false) => {
+  const recordQueryMetric = useCallback((latency: number, isError: boolean = false) => {
     setState(s => ({
       ...s,
       metrics: {
         ...s.metrics,
         queryLatency: [...s.metrics.queryLatency, latency].slice(-15),
         totalQueries: s.metrics.totalQueries + 1,
-        errorCount: isError ? s.metrics.errorCount + 1 : s.metrics.errorCount,
-        rateLimitHits: isRateLimit ? s.metrics.rateLimitHits + 1 : s.metrics.rateLimitHits
+        errorCount: isError ? s.metrics.errorCount + 1 : s.metrics.errorCount
       }
     }));
-  }, []);
-
-  const addMessage = useCallback((msg: ChatMessage) => {
-    setState(s => ({ ...s, messages: [...s.messages, msg] }));
-  }, []);
-
-  const updateLastMessageChunk = useCallback((chunk: string) => {
-    setState(s => {
-      const messages = [...s.messages];
-      const lastIndex = messages.length - 1;
-      if (lastIndex >= 0) {
-        messages[lastIndex] = { ...messages[lastIndex], content: messages[lastIndex].content + chunk };
-      }
-      return { ...s, messages };
-    });
-  }, []);
-
-  const setLastMessageSources = useCallback((sources: string[]) => {
-    setState(s => {
-      const messages = [...s.messages];
-      const lastIndex = messages.length - 1;
-      if (lastIndex >= 0) {
-        messages[lastIndex] = { ...messages[lastIndex], sources };
-      }
-      return { ...s, messages };
-    });
-  }, []);
-
-  const finishLastMessage = useCallback(() => {
-    setState(s => {
-      const messages = [...s.messages];
-      const lastIndex = messages.length - 1;
-      if (lastIndex >= 0) {
-        messages[lastIndex] = { ...messages[lastIndex], isLoading: false };
-      }
-      return { ...s, messages };
-    });
-  }, []);
-
-  const updateLastMessageError = useCallback((error: string) => {
-    setState(s => {
-      const messages = [...s.messages];
-      const lastIndex = messages.length - 1;
-      if (lastIndex >= 0) {
-        messages[lastIndex] = { ...messages[lastIndex], content: error, isLoading: false };
-      }
-      return { ...s, messages };
-    });
   }, []);
 
   return {
     state,
     processNewFile,
-    simulateStressTest,
-    runRegressiveSuite,
-    clearTestReport,
-    clearRegressiveReport,
-    addMessage,
-    updateLastMessageChunk,
-    setLastMessageSources,
-    finishLastMessage,
-    updateLastMessageError,
+    processSourceFiles,
+    clearSourceFiles,
+    addMessage: (msg: ChatMessage) => setState(s => ({ ...s, messages: [...s.messages, msg] })),
+    updateLastMessageChunk: (chunk: string) => setState(s => {
+      const messages = [...s.messages];
+      const last = messages[messages.length - 1];
+      if (last) messages[messages.length - 1] = { ...last, content: last.content + chunk };
+      return { ...s, messages };
+    }),
+    setLastMessageSources: (sources: string[]) => setState(s => {
+      const messages = [...s.messages];
+      const last = messages[messages.length - 1];
+      if (last) messages[messages.length - 1] = { ...last, sources };
+      return { ...s, messages };
+    }),
+    finishLastMessage: () => setState(s => {
+      const messages = [...s.messages];
+      const last = messages[messages.length - 1];
+      if (last) messages[messages.length - 1] = { ...last, isLoading: false };
+      return { ...s, messages };
+    }),
+    updateLastMessageError: (error: string) => setState(s => {
+      const messages = [...s.messages];
+      const last = messages[messages.length - 1];
+      if (last) messages[messages.length - 1] = { ...last, content: error, isLoading: false };
+      return { ...s, messages };
+    }),
     recordQueryMetric,
     setViewMode,
-    selectModel,
+    setActiveStep,
+    selectModel: (id: string) => setState(s => ({ ...s, selectedModelId: id })),
     setSettingsOpen,
-    openKeyManager,
     setSuggestions,
     setGeneratingSuggestions,
-    clearSession
+    clearSession,
+    clearTestReport: () => setState(s => ({ ...s, testReport: null })),
+    clearRegressiveReport: () => setState(s => ({ ...s, regressiveReport: null })),
+    simulateStressTest: () => {}, 
+    runRegressiveSuite: () => {}
   };
 }

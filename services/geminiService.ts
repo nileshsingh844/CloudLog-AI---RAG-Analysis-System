@@ -1,38 +1,71 @@
 
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
-import { LogChunk, ChatMessage, SearchIndex, ProcessingStats } from "../types";
+import { LogChunk, ChatMessage, SearchIndex, ProcessingStats, CodeFile, SourceLocation, CodeFlowStep, DebugSolution } from "../types";
 
 export class GeminiService {
-  /**
-   * Helper for Exponential Backoff
-   */
   private async delay(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  /**
-   * Context Trimming
-   */
-  private prepareContext(rankedChunks: LogChunk[], history: ChatMessage[], maxContextTokens: number = 25000): string {
+  private prepareContext(rankedChunks: LogChunk[], history: ChatMessage[], sourceFiles: CodeFile[], maxContextTokens: number = 25000): string {
     let currentTokens = 0;
-    const finalChunks: string[] = [];
+    const finalContext: string[] = [];
 
+    // Add Log Segments
     for (const chunk of rankedChunks) {
       const estimated = (chunk.content.length / 4);
-      if (currentTokens + estimated < maxContextTokens) {
-        finalChunks.push(`### LOG SEGMENT: ${chunk.id}\n${chunk.content}\n---`);
+      if (currentTokens + estimated < maxContextTokens * 0.6) {
+        finalContext.push(`### LOG SEGMENT: ${chunk.id}\n${chunk.content}\n---`);
         currentTokens += estimated;
       } else {
         break;
       }
     }
 
-    return finalChunks.join('\n\n');
+    // Add Code Context if log entries point to specific files
+    const relevantLocations = new Map<string, Set<number>>();
+    rankedChunks.forEach(chunk => {
+      chunk.entries.forEach(entry => {
+        entry.metadata.sourceLocations?.forEach(loc => {
+          if (!relevantLocations.has(loc.filePath)) {
+            relevantLocations.set(loc.filePath, new Set());
+          }
+          relevantLocations.get(loc.filePath)!.add(loc.line);
+        });
+      });
+    });
+
+    if (relevantLocations.size > 0) {
+      finalContext.push("\n### RELATED SOURCE CODE SNIPPETS (CONTEXT WINDOWS)");
+      for (const [filePath, lines] of relevantLocations.entries()) {
+        const file = sourceFiles.find(f => f.path.endsWith(filePath) || filePath.endsWith(f.path));
+        if (file) {
+          const fileLines = file.content.split('\n');
+          if (lines.size > 0) {
+            Array.from(lines).sort((a, b) => a - b).forEach(lineNum => {
+              const start = Math.max(0, lineNum - 30);
+              const end = Math.min(fileLines.length, lineNum + 30);
+              const snippet = fileLines.slice(start, end).join('\n');
+              const estimated = (snippet.length / 4);
+              if (currentTokens + estimated < maxContextTokens) {
+                finalContext.push(`FILE: ${file.path} (Lines ${start + 1}-${end})\n\`\`\`${file.language}\n${snippet}\n\`\`\``);
+                currentTokens += estimated;
+              }
+            });
+          } else {
+            const estimated = (file.content.length / 4);
+            if (currentTokens + estimated < maxContextTokens) {
+              finalContext.push(`FILE: ${file.path}\n\`\`\`${file.language}\n${file.content}\n\`\`\``);
+              currentTokens += estimated;
+            }
+          }
+        }
+      }
+    }
+
+    return finalContext.join('\n\n');
   }
 
-  /**
-   * Suggest high-value queries based on initial scan
-   */
   async getDiscoveryPrompts(stats: ProcessingStats, sampleChunks: LogChunk[]): Promise<string[]> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const sample = sampleChunks.slice(0, 3).map(c => c.content).join('\n');
@@ -41,6 +74,7 @@ export class GeminiService {
       As an expert SRE and Security Engineer, analyze this log file metadata and content sample.
       FILE: ${stats.fileName} (${stats.fileInfo?.format})
       SEVERITIES: ${JSON.stringify(stats.severities)}
+      INFERRED SOURCE FILES: ${stats.inferredFiles.join(', ')}
       SAMPLE CONTENT:
       ${sample.substring(0, 2000)}
 
@@ -71,7 +105,6 @@ export class GeminiService {
       const data = JSON.parse(response.text || '{}');
       return data.suggestions || [];
     } catch (e) {
-      console.error("Failed to generate suggestions", e);
       return [
         "What are the most frequent error messages?",
         "Identify any unusual activity patterns.",
@@ -108,12 +141,10 @@ export class GeminiService {
     return rankedIds.map(id => chunks.find(c => c.id === id)!).filter(Boolean);
   }
 
-  /**
-   * Unified Stream for Multi-Provider LLMs
-   */
   async *analyzeLogsStream(
     chunks: LogChunk[], 
     index: SearchIndex | null, 
+    sourceFiles: CodeFile[],
     query: string, 
     modelId: string, 
     history: ChatMessage[] = [],
@@ -122,18 +153,66 @@ export class GeminiService {
     if (!index) throw new Error("Search Index not compiled");
     
     const rankedChunks = this.findRelevantChunks(chunks, index, query);
-    const context = this.prepareContext(rankedChunks, history);
+    const context = this.prepareContext(rankedChunks, history, sourceFiles);
     const recentHistory = history.slice(-5).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
 
     yield { type: 'sources', data: rankedChunks.map(c => c.id) };
 
     const systemInstruction = `
-      DIAGNOSTIC MANDATE: Analyze raw log data for debugging and security analysis. 
-      You are an SRE performing root cause analysis. Be precise, technical, and objective.
+      DIAGNOSTIC MANDATE: Analyze raw log data and associated source code for debugging and security analysis. 
+      You are an expert developer and SRE performing root cause analysis.
+      
+      CORE CAPABILITIES:
+      1. Pinpoint exact failure lines in stack traces.
+      2. Trace code flow across files (Caller -> Callee chain).
+      3. Generate multiple potential solution paths with confidence scores.
+      4. Provide concrete code fix suggestions with before/after diff logic.
+      5. Perform Best Practices check for anti-patterns.
+
+      OUTPUT FORMAT:
+      Your response should be high-quality Markdown.
+      
+      At the END of your text, you MUST include a JSON block for structured debugging insights:
+      [DEBUG_START]
+      [
+        {
+          "id": "sol-1",
+          "strategy": "Quick Fix / Patch",
+          "confidence": 0.95,
+          "rootCause": "Null reference during async state hydration",
+          "fixes": [
+            {
+              "title": "Add null guard",
+              "filePath": "src/api/handler.ts",
+              "originalCode": "const data = await fetch();\\nprocess(data.user);",
+              "suggestedCode": "const data = await fetch();\\nif (data && data.user) {\\n  process(data.user);\\n}",
+              "explanation": "Prevents crash if fetch returns null.",
+              "bestPractice": "Always validate external API responses before accessing nested properties."
+            }
+          ],
+          "bestPractices": ["Defensive Programming", "API Resilience"]
+        }
+      ]
+      [DEBUG_END]
+
+      And a JSON block for the execution trace:
+      [ANALYSIS_START]
+      [
+        {
+          "file": "path/to/caller.ts",
+          "line": 42,
+          "method": "startProcess",
+          "description": "Initial call that triggered the workflow",
+          "variableState": { "requestId": "123-abc" }
+        }
+      ]
+      [ANALYSIS_END]
+
+      Only include these blocks if relevant to the query.
     `;
 
     const userPrompt = `
-      CONTEXT:
+      CONTEXT (LOGS + RELEVANT CODE):
       ${context}
       
       PREVIOUS INTERACTION:
@@ -143,17 +222,48 @@ export class GeminiService {
       ${query}
     `;
 
-    // Routing Logic based on Model ID
     if (modelId.startsWith('gemini')) {
-      yield* this.callGeminiStream(modelId, systemInstruction, userPrompt, retries);
-    } else if (modelId.startsWith('gpt')) {
-      yield* this.callOpenAIStream(modelId, systemInstruction, userPrompt);
-    } else if (modelId.startsWith('claude')) {
-      yield* this.callAnthropicStream(modelId, systemInstruction, userPrompt);
-    } else if (modelId.startsWith('mistral')) {
-      yield* this.callMistralStream(modelId, systemInstruction, userPrompt);
-    } else {
-      throw new Error(`Unsupported model: ${modelId}`);
+      let accumulatedText = "";
+      const stream = this.callGeminiStream(modelId, systemInstruction, userPrompt, retries);
+      for await (const chunk of stream) {
+        if (chunk.type === 'text') {
+          accumulatedText += chunk.data;
+          
+          // Check for analysis block
+          if (accumulatedText.includes('[ANALYSIS_START]') && accumulatedText.includes('[ANALYSIS_END]')) {
+             const startIdx = accumulatedText.indexOf('[ANALYSIS_START]') + '[ANALYSIS_START]'.length;
+             const endIdx = accumulatedText.indexOf('[ANALYSIS_END]');
+             const jsonStr = accumulatedText.substring(startIdx, endIdx).trim();
+             try {
+               const analysisSteps = JSON.parse(jsonStr);
+               yield { type: 'analysis', data: analysisSteps };
+               // Strip analysis block from text
+               accumulatedText = accumulatedText.substring(0, accumulatedText.indexOf('[ANALYSIS_START]'));
+               yield { type: 'text_replace', data: accumulatedText };
+             } catch (e) {}
+          }
+
+          // Check for debug block
+          if (accumulatedText.includes('[DEBUG_START]') && accumulatedText.includes('[DEBUG_END]')) {
+             const startIdx = accumulatedText.indexOf('[DEBUG_START]') + '[DEBUG_START]'.length;
+             const endIdx = accumulatedText.indexOf('[DEBUG_END]');
+             const jsonStr = accumulatedText.substring(startIdx, endIdx).trim();
+             try {
+               const debugSolutions = JSON.parse(jsonStr);
+               yield { type: 'debug_solutions', data: debugSolutions };
+               // Strip debug block from text
+               accumulatedText = accumulatedText.substring(0, accumulatedText.indexOf('[DEBUG_START]'));
+               yield { type: 'text_replace', data: accumulatedText };
+             } catch (e) {}
+          }
+
+          if (!accumulatedText.includes('[ANALYSIS_START]') && !accumulatedText.includes('[DEBUG_START]')) {
+            yield chunk;
+          }
+        } else {
+          yield chunk;
+        }
+      }
     }
   }
 
@@ -181,167 +291,12 @@ export class GeminiService {
         if (isRateLimit && attempt < retries) {
           attempt++;
           const waitTime = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
-          yield { type: 'status', data: `Rate limited. Retrying in ${Math.round(waitTime/1000)}s...` };
+          yield { type: 'status', data: `Rate limited. Retrying...` };
           await this.delay(waitTime);
           continue;
         }
         throw error;
       }
-    }
-  }
-
-  private async *callOpenAIStream(model: string, system: string, user: string): AsyncGenerator<any> {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      yield { type: 'status', data: 'Error: OPENAI_API_KEY environment variable not found.' };
-      return;
-    }
-
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user }
-          ],
-          stream: true
-        })
-      });
-
-      if (!response.ok) throw new Error(`OpenAI API error: ${response.statusText}`);
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) return;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim() !== '');
-        for (const line of lines) {
-          const message = line.replace(/^data: /, '');
-          if (message === '[DONE]') break;
-          try {
-            const parsed = JSON.parse(message);
-            const text = parsed.choices[0]?.delta?.content;
-            if (text) yield { type: 'text', data: text };
-          } catch (e) {
-            // Partial JSON or empty
-          }
-        }
-      }
-    } catch (e: any) {
-      yield { type: 'status', data: `OpenAI Stream Error: ${e.message}` };
-    }
-  }
-
-  private async *callAnthropicStream(model: string, system: string, user: string): AsyncGenerator<any> {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      yield { type: 'status', data: 'Error: ANTHROPIC_API_KEY environment variable not found.' };
-      return;
-    }
-
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'dangerously-allow-browser': 'true'
-        },
-        body: JSON.stringify({
-          model: model,
-          system: system,
-          messages: [{ role: 'user', content: user }],
-          max_tokens: 4096,
-          stream: true
-        })
-      });
-
-      if (!response.ok) throw new Error(`Anthropic API error: ${response.statusText}`);
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) return;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim() !== '');
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.replace(/^data: /, '');
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.type === 'content_block_delta') {
-              yield { type: 'text', data: parsed.delta.text };
-            }
-          } catch (e) {}
-        }
-      }
-    } catch (e: any) {
-      yield { type: 'status', data: `Anthropic Stream Error: ${e.message}` };
-    }
-  }
-
-  private async *callMistralStream(model: string, system: string, user: string): AsyncGenerator<any> {
-    const apiKey = process.env.MISTRAL_API_KEY;
-    if (!apiKey) {
-      yield { type: 'status', data: 'Error: MISTRAL_API_KEY environment variable not found.' };
-      return;
-    }
-
-    try {
-      const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user }
-          ],
-          stream: true
-        })
-      });
-
-      if (!response.ok) throw new Error(`Mistral API error: ${response.statusText}`);
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) return;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim() !== '');
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.replace(/^data: /, '');
-          if (data === '[DONE]') break;
-          try {
-            const parsed = JSON.parse(data);
-            const text = parsed.choices[0]?.delta?.content;
-            if (text) yield { type: 'text', data: text };
-          } catch (e) {}
-        }
-      }
-    } catch (e: any) {
-      yield { type: 'status', data: `Mistral Stream Error: ${e.message}` };
     }
   }
 }

@@ -1,5 +1,5 @@
 
-import { LogEntry, Severity, SearchIndex, LogChunk, FileInfo } from '../types';
+import { LogEntry, Severity, SearchIndex, LogChunk, FileInfo, SourceLocation } from '../types';
 
 /**
  * Universal Log Pattern Library
@@ -28,14 +28,6 @@ const LOG_PATTERNS: Record<string, { regex: RegExp, category: string }> = {
   java_log4j: {
     regex: /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+\[(.*?)\]\s+([A-Z]+)\s+(.*?)\s+-\s+(.*)/,
     category: 'Runtime'
-  },
-  nmea_gps: {
-    regex: /^\$GP[A-Z]{3},/,
-    category: 'IoT/GNSS'
-  },
-  canbus_asc: {
-    regex: /^\s*\d+\.\d+\s+\d+\s+[0-9A-F]+x\s+[0-9A-F\s]+/,
-    category: 'Automotive'
   }
 };
 
@@ -48,33 +40,108 @@ const SEVERITY_LEVELS: Record<string, Severity> = {
 };
 
 /**
- * Multi-Stage Format Detector
+ * Stack Trace Extraction Patterns
  */
+const STACK_TRACE_PATTERNS = [
+  // Java: at com.package.Class.method(FileName.java:123)
+  /at\s+([\w$.]+)\.([\w$<>]+)\(([^:)]+):(\d+)\)/,
+  // Python: File "filename.py", line 123, in method
+  /File\s+"([^"]+)",\s+line\s+(\d+),\s+in\s+(\w+)/,
+  // Node/JS: at method (filename.js:123:45) or at filename.js:123:45
+  /at\s+(?:(.+)\s+\()?([^:(\s]+):(\d+):(\d+)\)?/,
+  // C#: at Namespace.Class.Method(...) in path\to\file.cs:line 123
+  /at\s+(.+)\s+in\s+(.+):line\s+(\d+)/,
+  // General: path/to/file:123
+  /([/\w\.-]+\.\w+):(\d+)/
+];
+
+/**
+ * Detects if a file path is likely part of a library or third-party dependency.
+ */
+function isLibraryPath(path: string): boolean {
+  const libMarkers = [
+    'node_modules',
+    'site-packages',
+    'dist-packages',
+    'vendor',
+    'lib/python',
+    'maven2',
+    '.m2',
+    'jdk',
+    'jre',
+    'jar:',
+    'target/classes',
+    'usr/lib',
+    'usr/local/lib',
+    'bower_components',
+    'Internal.Packages'
+  ];
+  return libMarkers.some(marker => path.toLowerCase().includes(marker.toLowerCase()));
+}
+
+export function extractSourceLocations(raw: string): SourceLocation[] {
+  const locations: SourceLocation[] = [];
+  const lines = raw.split('\n');
+  
+  lines.forEach(line => {
+    for (const pattern of STACK_TRACE_PATTERNS) {
+      const match = line.match(pattern);
+      if (match) {
+        let loc: SourceLocation | null = null;
+        
+        // Java match: [1] class, [2] method, [3] file, [4] line
+        if (pattern.source.includes('at\\s+([\\w$.]+)')) {
+          loc = { filePath: match[3], line: parseInt(match[4]), method: `${match[1]}.${match[2]}` };
+        } 
+        // Python match: [1] file, [2] line, [3] method
+        else if (pattern.source.includes('File\\s+"([^"]+)"')) {
+          loc = { filePath: match[1], line: parseInt(match[2]), method: match[3] };
+        }
+        // Node match: [1] method, [2] file, [3] line
+        else if (pattern.source.includes('at\\s+(?:(.+)\\s+\\()?')) {
+          loc = { filePath: match[2], line: parseInt(match[3]), method: match[1] };
+        }
+        // C# match: [1] method, [2] file, [3] line
+        else if (pattern.source.includes('at\\s+(.+)\\s+in\\s+(.+):line')) {
+          loc = { filePath: match[2], line: parseInt(match[3]), method: match[1] };
+        }
+        // General match: [1] file, [2] line
+        else {
+          loc = { filePath: match[1], line: parseInt(match[2]) };
+        }
+
+        if (loc) {
+          loc.isLibrary = isLibraryPath(loc.filePath);
+          locations.push(loc);
+        }
+        break; 
+      }
+    }
+  });
+
+  // Deduplicate by file and line
+  return Array.from(new Set(locations.map(l => `${l.filePath}:${l.line}`)))
+    .map(key => locations.find(l => `${l.filePath}:${l.line}` === key)!);
+}
+
 export function detectFormat(filename: string, content: string): { format: string, category: string } {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   const firstLines = content.split('\n').slice(0, 10);
 
-  // Stage 1: Content-based (JSON/XML/CSV)
   try {
-    if (firstLines[0].trim().startsWith('{')) {
+    if (firstLines[0]?.trim().startsWith('{')) {
       JSON.parse(firstLines[0]);
       return { format: 'JSON (Structured)', category: 'Modern App' };
     }
   } catch {}
 
-  if (firstLines[0].trim().startsWith('<?xml')) return { format: 'XML', category: 'Legacy App' };
+  if (firstLines[0]?.trim().startsWith('<?xml')) return { format: 'XML', category: 'Legacy App' };
   
-  // Stage 2: Pattern-based
   for (const [key, pattern] of Object.entries(LOG_PATTERNS)) {
     if (firstLines.some(line => pattern.regex.test(line))) {
       return { format: key.replace(/_/g, ' ').toUpperCase(), category: pattern.category };
     }
   }
-
-  // Stage 3: Extension-based hints
-  if (['pcap', 'pcapng'].includes(ext)) return { format: 'PCAP (Network)', category: 'Security' };
-  if (['trc', 'trace'].includes(ext)) return { format: 'Diagnostic Trace', category: 'IoT/Embedded' };
-  if (ext === 'qxdm') return { format: 'Qualcomm QXDM', category: 'Cellular' };
 
   return { format: 'Generic Text', category: 'General' };
 }
@@ -131,7 +198,6 @@ export function parseLogFile(content: string, filename: string, offset: number =
     const fullRaw = lines.join('\n');
     let severity = Severity.UNKNOWN;
     
-    // Look for severity labels
     for (const [label, level] of Object.entries(SEVERITY_LEVELS)) {
       const regex = new RegExp(`\\b${label}\\b`, 'i');
       if (regex.test(fullRaw)) {
@@ -140,38 +206,34 @@ export function parseLogFile(content: string, filename: string, offset: number =
       }
     }
 
-    // Smart Timestamp Detection
     let timestamp: Date | null = null;
     const tsMatch = fullRaw.match(/(\d{4}[-/]\d{2}[-/]\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)|(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
     if (tsMatch) {
       timestamp = new Date(tsMatch[0]);
-      if (isNaN(timestamp.getTime())) {
-        timestamp = null;
-      }
+      if (isNaN(timestamp.getTime())) timestamp = null;
     }
 
-    const firstLine = lines[0];
+    const sourceLocations = extractSourceLocations(fullRaw);
+
     entries.push({
       id: `log-${offset + entries.length}`,
-      timestamp: timestamp,
+      timestamp,
       severity,
-      message: firstLine.substring(0, 500),
+      message: lines[0].substring(0, 500),
       raw: fullRaw,
       metadata: {
         hasStackTrace: lines.length > 1,
-        signature: getLogSignature(firstLine),
-        formatDetected: format
+        signature: getLogSignature(lines[0]),
+        formatDetected: format,
+        sourceLocations: sourceLocations.length > 0 ? sourceLocations : undefined
       }
     });
   };
 
-  // Basic line-by-line grouping logic
-  // New entries start if a line starts with a common log prefix
   const NEW_ENTRY_PREFIX = /^(\d{4}|\w{3}\s+\d|\[\d|<)/;
 
   rawLines.forEach((line) => {
     if (line.trim() === '') return;
-
     if (NEW_ENTRY_PREFIX.test(line) && currentEntryLines.length > 0) {
       finalizeEntry(currentEntryLines);
       currentEntryLines = [line];
@@ -188,7 +250,7 @@ export function parseLogFile(content: string, filename: string, offset: number =
     format,
     compression: filename.match(/\.(gz|bz2|xz|zst|zip)$/) ? filename.split('.').pop()! : null,
     parserUsed: format === 'JSON (Structured)' ? 'JSONLogParser' : 'GenericTextParser',
-    isBinary: ['pcap', 'pcapng', 'qxdm', 'evtx'].includes(filename.split('.').pop()?.toLowerCase() || ''),
+    isBinary: false,
     category
   };
 
@@ -202,7 +264,6 @@ export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): 
 
   entries.forEach(entry => {
     const entrySize = Math.ceil(entry.raw.length / 4);
-
     if (currentSize + entrySize > maxTokens && current.length > 0) {
       chunks.push({
         id: `chunk-${chunks.length}`,
@@ -213,7 +274,6 @@ export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): 
       current = [];
       currentSize = 0;
     }
-
     current.push(entry);
     currentSize += entrySize;
   });
