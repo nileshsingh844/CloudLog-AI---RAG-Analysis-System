@@ -13,7 +13,7 @@ import { TestCenter } from './components/TestCenter';
 import { TestReportModal } from './components/TestReportModal';
 import { RegressiveReportModal } from './components/RegressiveReportModal';
 import { GeminiService } from './services/geminiService';
-import { Terminal, Database, Activity, Settings, LayoutDashboard } from 'lucide-react';
+import { Terminal, Database, Activity, Settings, LayoutDashboard, CloudUpload, Save, Loader2, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 const App: React.FC = () => {
   const { 
@@ -34,7 +34,8 @@ const App: React.FC = () => {
     setSettingsOpen,
     openKeyManager,
     setSuggestions,
-    setGeneratingSuggestions
+    setGeneratingSuggestions,
+    clearSession
   } = useLogStore();
 
   const gemini = useMemo(() => {
@@ -57,6 +58,17 @@ const App: React.FC = () => {
   }, [state.stats, state.chunks, state.isProcessing, state.isGeneratingSuggestions, gemini, setSuggestions, setGeneratingSuggestions, state.suggestions.length]);
 
   const handleSendMessage = useCallback(async (query: string) => {
+    // If we have messages but no logs, it means the session was restored but logs are cleared from memory.
+    if (state.messages.length > 0 && !state.chunks.length) {
+      addMessage({
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: "Diagnostic session restored from memory, but raw log data must be re-ingested to perform new analysis. Please re-upload the file.",
+        timestamp: new Date()
+      });
+      return;
+    }
+
     if (state.isProcessing || (!state.chunks.length && !state.stats)) return;
 
     const queryStart = performance.now();
@@ -118,8 +130,22 @@ const App: React.FC = () => {
           <div className="min-w-0">
             <h1 className="text-base sm:text-lg font-bold text-white tracking-tight truncate">CloudLog <span className="text-blue-500">AI</span></h1>
             <div className="flex items-center gap-2">
-              <span className="flex h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="text-[8px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate">Diagnostic Persistence: Active</span>
+              {state.saveStatus === 'saving' ? (
+                <>
+                  <Loader2 className="h-2 w-2 text-blue-400 animate-spin" />
+                  <span className="text-[8px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate">Persistence: Syncing...</span>
+                </>
+              ) : state.saveStatus === 'saved' ? (
+                <>
+                  <CheckCircle2 className="h-2 w-2 text-emerald-500" />
+                  <span className="text-[8px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate">Persistence: Synced</span>
+                </>
+              ) : (
+                <>
+                  <span className="flex h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[8px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate">Diagnostic Active</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -134,7 +160,6 @@ const App: React.FC = () => {
             >
               <Activity size={10} className="sm:w-[12px] sm:h-[12px]" />
               <span className="hidden xs:inline">Diagnostic</span>
-              <span className="xs:hidden">Diag</span>
             </button>
             <button 
               onClick={() => setViewMode('operator')}
@@ -144,7 +169,6 @@ const App: React.FC = () => {
             >
               <LayoutDashboard size={10} className="sm:w-[12px] sm:h-[12px]" />
               <span className="hidden xs:inline">Operator</span>
-              <span className="xs:hidden">Ops</span>
             </button>
           </div>
 
@@ -177,13 +201,29 @@ const App: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
             <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-4 sm:gap-6">
               <section>
-                <h2 className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-3 sm:mb-4">Ingestion Engine</h2>
+                <div className="flex items-center justify-between mb-3 sm:mb-4">
+                  <h2 className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">Ingestion Engine</h2>
+                  {state.messages.length > 0 && !state.chunks.length && (
+                     <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-500/10 rounded border border-blue-500/20 animate-pulse">
+                        <CloudUpload size={10} className="text-blue-400" />
+                        <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Restore Memory Path</span>
+                     </div>
+                  )}
+                </div>
                 <FileUpload 
                   onFileSelect={processNewFile} 
                   isProcessing={state.isProcessing}
                   ingestionProgress={state.ingestionProgress}
                   fileName={state.stats?.fileName}
                 />
+                {state.messages.length > 0 && !state.chunks.length && (
+                  <div className="mt-4 p-4 bg-blue-600/5 border border-blue-500/20 rounded-2xl flex items-start gap-3">
+                    <ShieldAlert className="text-blue-400 w-5 h-5 shrink-0" />
+                    <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                      Session state was restored from persistent cache. To continue diagnostic queries on <span className="text-blue-400 font-bold">{state.stats?.fileName}</span>, please re-upload the file to re-partition the search space.
+                    </p>
+                  </div>
+                )}
               </section>
 
               <section className="space-y-4 sm:space-y-6">
@@ -239,13 +279,18 @@ const App: React.FC = () => {
         selectedModelId={state.selectedModelId}
         onSelectModel={selectModel}
         onManageKeys={openKeyManager}
+        onClearSession={clearSession}
       />
 
       <footer className="bg-slate-900 border-t border-slate-800 px-4 sm:px-6 py-2 sm:py-3 flex items-center justify-between text-slate-500 overflow-x-auto whitespace-nowrap scrollbar-hide">
          <div className="flex gap-4 sm:gap-8 items-center">
            <span className="text-[7px] sm:text-[10px] font-bold uppercase tracking-widest">v2.7.0-MULTI</span>
            <span className="hidden md:inline text-[9px] sm:text-[10px] font-bold uppercase tracking-widest">Local-First Persistence</span>
-           <span className="text-[7px] sm:text-[10px] font-bold uppercase tracking-widest">Dynamic Key: Ready</span>
+           {state.lastSaved && (
+             <span className="text-[7px] sm:text-[10px] font-bold uppercase tracking-widest text-slate-600 italic">
+               Saved: {state.lastSaved.toLocaleTimeString()}
+             </span>
+           )}
          </div>
          <div className="text-[7px] sm:text-[9px] font-bold uppercase tracking-widest opacity-50 ml-4">
            Edge Compute Verified

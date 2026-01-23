@@ -1,7 +1,7 @@
 
 import React, { memo } from 'react';
 import { ModelOption, LLMProvider } from '../types';
-import { X, Cpu, Zap, Settings, Shield, Info, ExternalLink, Key } from 'lucide-react';
+import { X, Cpu, Zap, Settings, Shield, Info, ExternalLink, Key, Trash2 } from 'lucide-react';
 import { AVAILABLE_MODELS } from '../store/useLogStore';
 
 interface IntelligenceHubProps {
@@ -10,6 +10,7 @@ interface IntelligenceHubProps {
   selectedModelId: string;
   onSelectModel: (id: string) => void;
   onManageKeys: () => void;
+  onClearSession: () => void;
 }
 
 export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
@@ -17,7 +18,8 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
   onClose,
   selectedModelId,
   onSelectModel,
-  onManageKeys
+  onManageKeys,
+  onClearSession
 }) => {
   if (!isOpen) return null;
 
@@ -48,23 +50,50 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
         {/* Content */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-6 sm:space-y-8 scrollbar-hide">
           {/* Key Management Section */}
-          <section>
-            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-              <Key size={12} className="text-blue-500" />
-              Identity Management
-            </h3>
-            <div className="bg-slate-800/30 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-200">Google Gemini Secure Auth</p>
-                <p className="text-[10px] text-slate-500 mt-1 max-w-[200px] xs:max-w-none">Authorization persistent through authorized provider.</p>
+          <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Key size={12} className="text-blue-500" />
+                Identity Management
+              </h3>
+              <div className="bg-slate-800/30 border border-slate-800 rounded-2xl p-4 flex flex-col items-start gap-4 h-full">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-200">Google Gemini Auth</p>
+                  <p className="text-[10px] text-slate-500 mt-1">Authorization persistent through authorized provider.</p>
+                </div>
+                <button 
+                  onClick={onManageKeys}
+                  className="w-full mt-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/10 flex items-center justify-center gap-2"
+                >
+                  <Key size={12} />
+                  Manage Key
+                </button>
               </div>
-              <button 
-                onClick={onManageKeys}
-                className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/10 flex items-center justify-center gap-2"
-              >
-                <Key size={12} />
-                Manage Key
-              </button>
+            </div>
+
+            <div>
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Trash2 size={12} className="text-red-500" />
+                Session Sanitation
+              </h3>
+              <div className="bg-slate-800/30 border border-slate-800 rounded-2xl p-4 flex flex-col items-start gap-4 h-full">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-200">Clear Persistence</p>
+                  <p className="text-[10px] text-slate-500 mt-1">Wipe local diagnostic history and conversation buffers.</p>
+                </div>
+                <button 
+                  onClick={() => {
+                    if (confirm("Sanitize all session data? This cannot be undone.")) {
+                      onClearSession();
+                      onClose();
+                    }
+                  }}
+                  className="w-full mt-auto px-4 py-2 bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 border border-slate-700 hover:border-red-500/50 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={12} />
+                  Clear Session
+                </button>
+              </div>
             </div>
           </section>
 
@@ -100,36 +129,9 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
                           }
                         `}
                       >
-                        {/* Tooltip */}
-                        <div className="absolute opacity-0 group-hover:opacity-100 pointer-events-none z-[110] bottom-[105%] left-1/2 -translate-x-1/2 w-[240px] bg-slate-950 border border-slate-700 rounded-xl p-3 shadow-2xl transition-all duration-200 transform translate-y-2 group-hover:translate-y-0 hidden sm:block">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2 pb-1.5 border-b border-slate-800">
-                              <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Model Profile</span>
-                            </div>
-                            <p className="text-[10px] text-slate-300 leading-relaxed font-medium">
-                              {model.description}
-                            </p>
-                            <div className="flex flex-wrap gap-1 pt-1">
-                              {model.capabilities.map(cap => (
-                                <span key={cap} className="px-1.5 py-0.5 bg-blue-500/10 text-[8px] font-bold text-blue-400 rounded-md border border-blue-500/30 uppercase tracking-tighter">
-                                  {cap}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                          {/* Arrow */}
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-[6px] border-transparent border-t-slate-700"></div>
-                        </div>
-
                         <div className="flex items-start justify-between mb-2">
                           <div className={`p-1.5 rounded-lg ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-500'}`}>
                             {model.capabilities.includes('logic') ? <Cpu size={12} /> : <Zap size={12} />}
-                          </div>
-                          <div className="flex gap-1">
-                            {model.capabilities.slice(0, 3).map((_, i) => (
-                              <div key={i} className={`w-1 h-1 rounded-full ${isSelected ? 'bg-blue-400' : 'bg-slate-700'}`}></div>
-                            ))}
                           </div>
                         </div>
                         <h5 className={`text-xs sm:text-sm font-bold truncate ${isSelected ? 'text-blue-400' : 'text-slate-200'}`}>
@@ -154,9 +156,6 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
                <span className="text-[9px] font-bold text-slate-600 uppercase">Synced</span>
              </div>
-             <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="hidden xs:flex text-[9px] font-bold text-slate-600 hover:text-blue-400 items-center gap-1 truncate">
-               <span className="sm:hidden lg:inline">Billing Info</span> <ExternalLink size={10} />
-             </a>
           </div>
           <button 
             onClick={onClose}

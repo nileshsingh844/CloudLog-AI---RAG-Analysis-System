@@ -138,4 +138,6 @@ export interface AppState {
   testReport: TestReport | null;
   regressiveReport: RegressiveReport | null;
   suggestions: string[];
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+  lastSaved: Date | null;
 }

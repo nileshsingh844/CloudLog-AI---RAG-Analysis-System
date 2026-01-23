@@ -109,22 +109,23 @@ export class GeminiService {
   }
 
   /**
-   * Enhanced Stream with Dynamic Model Initialization
+   * Unified Stream for Multi-Provider LLMs
    */
   async *analyzeLogsStream(
     chunks: LogChunk[], 
     index: SearchIndex | null, 
     query: string, 
-    modelName: string, 
+    modelId: string, 
     history: ChatMessage[] = [],
     retries: number = 3
   ): AsyncGenerator<any> {
     if (!index) throw new Error("Search Index not compiled");
     
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const rankedChunks = this.findRelevantChunks(chunks, index, query);
     const context = this.prepareContext(rankedChunks, history);
     const recentHistory = history.slice(-5).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
+
+    yield { type: 'sources', data: rankedChunks.map(c => c.id) };
 
     const systemInstruction = `
       DIAGNOSTIC MANDATE: Analyze raw log data for debugging and security analysis. 
@@ -142,26 +143,39 @@ export class GeminiService {
       ${query}
     `;
 
+    // Routing Logic based on Model ID
+    if (modelId.startsWith('gemini')) {
+      yield* this.callGeminiStream(modelId, systemInstruction, userPrompt, retries);
+    } else if (modelId.startsWith('gpt')) {
+      yield* this.callOpenAIStream(modelId, systemInstruction, userPrompt);
+    } else if (modelId.startsWith('claude')) {
+      yield* this.callAnthropicStream(modelId, systemInstruction, userPrompt);
+    } else if (modelId.startsWith('mistral')) {
+      yield* this.callMistralStream(modelId, systemInstruction, userPrompt);
+    } else {
+      throw new Error(`Unsupported model: ${modelId}`);
+    }
+  }
+
+  private async *callGeminiStream(model: string, system: string, user: string, retries: number): AsyncGenerator<any> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     let attempt = 0;
     while (attempt <= retries) {
       try {
         const response = await ai.models.generateContentStream({
-          model: modelName,
-          contents: userPrompt,
+          model: model,
+          contents: user,
           config: { 
-            systemInstruction,
+            systemInstruction: system,
             temperature: 0.1,
           }
         });
-
-        yield { type: 'sources', data: rankedChunks.map(c => c.id) };
 
         for await (const chunk of response) {
           const c = chunk as GenerateContentResponse;
           if (c.text) yield { type: 'text', data: c.text };
         }
         return;
-
       } catch (error: any) {
         const isRateLimit = error.message?.includes('429') || error.status === 429;
         if (isRateLimit && attempt < retries) {
@@ -173,6 +187,161 @@ export class GeminiService {
         }
         throw error;
       }
+    }
+  }
+
+  private async *callOpenAIStream(model: string, system: string, user: string): AsyncGenerator<any> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      yield { type: 'status', data: 'Error: OPENAI_API_KEY environment variable not found.' };
+      return;
+    }
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user }
+          ],
+          stream: true
+        })
+      });
+
+      if (!response.ok) throw new Error(`OpenAI API error: ${response.statusText}`);
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+        for (const line of lines) {
+          const message = line.replace(/^data: /, '');
+          if (message === '[DONE]') break;
+          try {
+            const parsed = JSON.parse(message);
+            const text = parsed.choices[0]?.delta?.content;
+            if (text) yield { type: 'text', data: text };
+          } catch (e) {
+            // Partial JSON or empty
+          }
+        }
+      }
+    } catch (e: any) {
+      yield { type: 'status', data: `OpenAI Stream Error: ${e.message}` };
+    }
+  }
+
+  private async *callAnthropicStream(model: string, system: string, user: string): AsyncGenerator<any> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      yield { type: 'status', data: 'Error: ANTHROPIC_API_KEY environment variable not found.' };
+      return;
+    }
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'dangerously-allow-browser': 'true'
+        },
+        body: JSON.stringify({
+          model: model,
+          system: system,
+          messages: [{ role: 'user', content: user }],
+          max_tokens: 4096,
+          stream: true
+        })
+      });
+
+      if (!response.ok) throw new Error(`Anthropic API error: ${response.statusText}`);
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.replace(/^data: /, '');
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.type === 'content_block_delta') {
+              yield { type: 'text', data: parsed.delta.text };
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e: any) {
+      yield { type: 'status', data: `Anthropic Stream Error: ${e.message}` };
+    }
+  }
+
+  private async *callMistralStream(model: string, system: string, user: string): AsyncGenerator<any> {
+    const apiKey = process.env.MISTRAL_API_KEY;
+    if (!apiKey) {
+      yield { type: 'status', data: 'Error: MISTRAL_API_KEY environment variable not found.' };
+      return;
+    }
+
+    try {
+      const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user }
+          ],
+          stream: true
+        })
+      });
+
+      if (!response.ok) throw new Error(`Mistral API error: ${response.statusText}`);
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.replace(/^data: /, '');
+          if (data === '[DONE]') break;
+          try {
+            const parsed = JSON.parse(data);
+            const text = parsed.choices[0]?.delta?.content;
+            if (text) yield { type: 'text', data: text };
+          } catch (e) {}
+        }
+      }
+    } catch (e: any) {
+      yield { type: 'status', data: `Mistral Stream Error: ${e.message}` };
     }
   }
 }

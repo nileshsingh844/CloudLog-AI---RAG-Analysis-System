@@ -1,7 +1,9 @@
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, SystemMetrics, TimeBucket, ModelOption, TestReport, RegressiveReport, TestCase } from '../types';
 import { parseLogFile, chunkLogEntries, buildSearchIndex } from '../utils/logParser';
+
+const STORAGE_KEY = 'cloudlog_ai_session';
 
 const initialMetrics: SystemMetrics = {
   queryLatency: [],
@@ -36,28 +38,111 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     description: 'Cost-effective model for routine log scanning.',
     capabilities: ['speed'],
     status: 'active'
+  },
+  {
+    id: 'gpt-4o',
+    provider: 'openai',
+    name: 'GPT-4o',
+    description: 'Omni model, high intelligence and high speed.',
+    capabilities: ['logic', 'speed', 'context'],
+    status: 'active'
+  },
+  {
+    id: 'gpt-4o-mini',
+    provider: 'openai',
+    name: 'GPT-4o Mini',
+    description: 'Lightweight intelligent model for fast processing.',
+    capabilities: ['speed'],
+    status: 'active'
   }
 ];
 
 export function useLogStore() {
-  const [state, setState] = useState<AppState>({
-    apiKey: process.env.API_KEY || null,
-    isProcessing: false,
-    isGeneratingSuggestions: false,
-    ingestionProgress: 0,
-    logs: [],
-    chunks: [],
-    searchIndex: null,
-    stats: null,
-    messages: [],
-    selectedModelId: 'gemini-3-flash-preview',
-    metrics: initialMetrics,
-    viewMode: 'diagnostic',
-    isSettingsOpen: false,
-    testReport: null,
-    regressiveReport: null,
-    suggestions: []
+  const [state, setState] = useState<AppState>(() => {
+    // Initial Hydration from LocalStorage
+    const saved = localStorage.getItem(STORAGE_KEY);
+    const baseState: AppState = {
+      apiKey: null,
+      isProcessing: false,
+      isGeneratingSuggestions: false,
+      ingestionProgress: 0,
+      logs: [],
+      chunks: [],
+      searchIndex: null,
+      stats: null,
+      messages: [],
+      selectedModelId: 'gemini-3-flash-preview',
+      metrics: initialMetrics,
+      viewMode: 'diagnostic',
+      isSettingsOpen: false,
+      testReport: null,
+      regressiveReport: null,
+      suggestions: [],
+      saveStatus: 'idle',
+      lastSaved: null
+    };
+
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return {
+          ...baseState,
+          ...parsed,
+          // Ensure dates are correctly parsed back
+          messages: (parsed.messages || []).map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) })),
+          lastSaved: parsed.lastSaved ? new Date(parsed.lastSaved) : null,
+          stats: parsed.stats ? {
+            ...parsed.stats,
+            timeRange: {
+              start: parsed.stats.timeRange?.start ? new Date(parsed.stats.timeRange.start) : null,
+              end: parsed.stats.timeRange?.end ? new Date(parsed.stats.timeRange.end) : null,
+            }
+          } : null
+        };
+      } catch (e) {
+        console.error("Failed to restore session", e);
+      }
+    }
+    return baseState;
   });
+
+  // Fixed NodeJS.Timeout type error by using ReturnType<typeof setTimeout> for cross-environment compatibility.
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Persistence Effect
+  useEffect(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    
+    // Don't save if we are in the middle of a massive ingestion
+    if (state.isProcessing) return;
+
+    setState(s => ({ ...s, saveStatus: 'saving' }));
+
+    saveTimeoutRef.current = setTimeout(() => {
+      try {
+        const toSave = {
+          messages: state.messages.filter(m => !m.isLoading), // Don't save temporary loading states
+          stats: state.stats,
+          selectedModelId: state.selectedModelId,
+          viewMode: state.viewMode,
+          suggestions: state.suggestions,
+          lastSaved: new Date().toISOString()
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+        setState(s => ({ ...s, saveStatus: 'saved', lastSaved: new Date() }));
+        
+        // Return to idle after a brief indicator duration
+        setTimeout(() => setState(s => ({ ...s, saveStatus: 'idle' })), 3000);
+      } catch (e) {
+        console.error("Failed to save session", e);
+        setState(s => ({ ...s, saveStatus: 'error' }));
+      }
+    }, 1000);
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [state.messages.length, state.stats, state.selectedModelId, state.viewMode, state.suggestions]);
 
   const setProcessing = useCallback((val: boolean) => setState(s => ({ ...s, isProcessing: val })), []);
   const setGeneratingSuggestions = useCallback((val: boolean) => setState(s => ({ ...s, isGeneratingSuggestions: val })), []);
@@ -67,6 +152,26 @@ export function useLogStore() {
   const clearTestReport = useCallback(() => setState(s => ({ ...s, testReport: null })), []);
   const clearRegressiveReport = useCallback(() => setState(s => ({ ...s, regressiveReport: null })), []);
   const setSuggestions = useCallback((suggestions: string[]) => setState(s => ({ ...s, suggestions })), []);
+
+  const openKeyManager = useCallback(async () => {
+    if ((window as any).aistudio?.openSelectKey) {
+      await (window as any).aistudio.openSelectKey();
+    }
+  }, []);
+
+  const clearSession = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    setState(s => ({
+      ...s,
+      messages: [],
+      stats: null,
+      logs: [],
+      chunks: [],
+      searchIndex: null,
+      suggestions: [],
+      lastSaved: null
+    }));
+  }, []);
 
   const selectModel = useCallback((modelId: string) => {
     setState(s => ({ ...s, selectedModelId: modelId }));
@@ -135,8 +240,8 @@ export function useLogStore() {
         [Severity.INFO]: 0, [Severity.DEBUG]: 0, [Severity.UNKNOWN]: 0,
       };
 
-      let startTS: Date | null = new Date(Date.now() - 3600000);
-      let endTS: Date | null = new Date();
+      let startTS: Date | null = allEntries[0]?.timestamp || new Date(Date.now() - 3600000);
+      let endTS: Date | null = allEntries[allEntries.length - 1]?.timestamp || new Date();
 
       allEntries.forEach(log => {
         const count = log.metadata.occurrenceCount || 1;
@@ -178,7 +283,7 @@ export function useLogStore() {
         isProcessing: false,
         ingestionProgress: 100,
         messages: [],
-        suggestions: [], // Clear suggestions on new file
+        suggestions: [], 
         metrics: {
           ...s.metrics,
           indexingLatency: Math.round(endTime - startTime),
@@ -329,14 +434,6 @@ export function useLogStore() {
     });
   }, []);
 
-  const openKeyManager = useCallback(async () => {
-    // @ts-ignore
-    if (window.aistudio?.openSelectKey) {
-      // @ts-ignore
-      await window.aistudio.openSelectKey();
-    }
-  }, []);
-
   return {
     state,
     processNewFile,
@@ -355,6 +452,7 @@ export function useLogStore() {
     setSettingsOpen,
     openKeyManager,
     setSuggestions,
-    setGeneratingSuggestions
+    setGeneratingSuggestions,
+    clearSession
   };
 }
