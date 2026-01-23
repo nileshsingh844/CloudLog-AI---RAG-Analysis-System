@@ -1,7 +1,8 @@
 
 import React from 'react';
 import { CodeFlowStep, CodeFile } from '../types';
-import { ChevronDown, ChevronRight, FileCode, Play, Terminal, Variable, MoveRight, ArrowDownRight, ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileCode, Play, Terminal, Variable, MoveRight, ArrowDownRight, ExternalLink, Hash, Link as LinkIcon } from 'lucide-react';
+import { useLogStore } from '../store/useLogStore';
 
 interface CodeFlowTraceProps {
   steps: CodeFlowStep[];
@@ -9,30 +10,44 @@ interface CodeFlowTraceProps {
 }
 
 export const CodeFlowTrace: React.FC<CodeFlowTraceProps> = ({ steps, sourceFiles }) => {
+  const { setSelectedLocation } = useLogStore();
+
   return (
-    <div className="space-y-6 my-8">
-      <div className="flex items-center gap-3 px-2 mb-4">
-        <div className="p-2 bg-emerald-500/20 rounded-lg">
-          <Play size={16} className="text-emerald-400" />
+    <div className="space-y-0 my-8">
+      <div className="flex items-center justify-between px-2 mb-8">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-500/20 rounded-lg border border-blue-500/20 shadow-[0_0_15px_rgba(59,130,246,0.2)]">
+            <Play size={16} className="text-blue-400" />
+          </div>
+          <div>
+            <h4 className="text-[12px] font-black text-slate-100 uppercase tracking-[0.15em]">Neural Control Flow</h4>
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest italic">Multi-Node Execution Chain</p>
+          </div>
         </div>
-        <div>
-          <h4 className="text-[12px] font-black text-slate-100 uppercase tracking-widest">Augmented Execution Trace</h4>
-          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Multi-file Caller-Callee Propagation</p>
+        
+        <div className="px-3 py-1 bg-slate-900 border border-slate-800 rounded-lg flex items-center gap-2">
+          <Hash size={10} className="text-slate-600" />
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{steps.length} Logics Segments</span>
         </div>
       </div>
       
-      <div className="relative pl-6 space-y-0">
-        {/* Main flow line */}
-        <div className="absolute left-[13px] top-4 bottom-4 w-px bg-gradient-to-b from-blue-500 via-slate-800 to-blue-500 opacity-40" />
+      <div className="relative pl-12 pr-2">
+        {/* Main Vertical Trunk Rail */}
+        <div className="absolute left-[25px] top-6 bottom-6 w-[2px] bg-slate-800/40" />
         
+        {/* Animated Flow Gradient Overlay (The "Electricity" Pulse) */}
+        <div className="absolute left-[25px] top-6 bottom-6 w-[2px] overflow-hidden rounded-full pointer-events-none">
+           <div className="w-full h-24 bg-gradient-to-b from-transparent via-blue-500 to-transparent animate-[flow-pulse_3s_linear_infinite]" 
+                style={{ top: '-100px', position: 'absolute' }} />
+        </div>
+
         {steps.map((step, idx) => {
           const prevStep = idx > 0 ? steps[idx - 1] : null;
           const isNewFile = prevStep ? prevStep.file !== step.file : true;
+          const isLast = idx === steps.length - 1;
           
           const file = sourceFiles.find(f => f.path.endsWith(step.file) || step.file.endsWith(f.path));
-          
-          // Windowing logic: Show 10 lines before and after for deep context
-          const CONTEXT_WINDOW = 10;
+          const CONTEXT_WINDOW = 6;
           const snippet = file ? file.content.split('\n').slice(
             Math.max(0, step.line - CONTEXT_WINDOW - 1), 
             step.line + CONTEXT_WINDOW
@@ -41,105 +56,136 @@ export const CodeFlowTrace: React.FC<CodeFlowTraceProps> = ({ steps, sourceFiles
           const snippetStartLine = Math.max(1, step.line - CONTEXT_WINDOW);
 
           return (
-            <div key={idx} className="relative pb-10 last:pb-0 group">
-              {/* Connection bridge for file jumps */}
-              {idx > 0 && isNewFile && (
-                <div className="flex items-center gap-3 mb-6 ml-[-4px] animate-in fade-in slide-in-from-left-2 duration-700">
-                  <div className="w-9 h-px bg-blue-500/30" />
-                  <div className="px-3 py-1 bg-blue-600/10 border border-blue-500/20 rounded-full flex items-center gap-2 shadow-lg shadow-blue-500/5">
-                    <ArrowDownRight size={12} className="text-blue-400" />
-                    <span className="text-[9px] font-black text-blue-300 uppercase tracking-widest">
-                      Context Switch: {prevStep?.method} → {step.method}
-                    </span>
-                  </div>
+            <div key={idx} className="relative pb-14 last:pb-0 group">
+              
+              {/* Connector Bridge for File Transitions */}
+              {idx > 0 && (
+                <div className="absolute left-[-25px] top-[-56px] w-[25px] h-[56px] pointer-events-none">
+                  {isNewFile ? (
+                    <svg className="w-full h-full text-blue-500/30" viewBox="0 0 25 56" fill="none">
+                      <path d="M25 0V15C25 25 10 25 10 35V56" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+                      <circle cx="25" cy="0" r="3" fill="currentColor" />
+                    </svg>
+                  ) : (
+                    <div className="h-full w-px bg-blue-500/20 ml-[25px]" />
+                  )}
                 </div>
               )}
 
-              {/* Step Node Marker */}
-              <div className={`absolute -left-[3px] top-2 w-4 h-4 rounded-full bg-slate-950 border-2 z-10 shadow-lg transition-transform group-hover:scale-125
-                ${idx === steps.length - 1 ? 'border-red-500 ring-4 ring-red-500/20' : 'border-blue-500'}`}>
-                <div className={`w-1.5 h-1.5 rounded-full mx-auto mt-[3px] ${idx === steps.length - 1 ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`} />
+              {/* Status/Step Node Marker */}
+              <div className={`absolute -left-[36px] top-1 w-10 h-10 rounded-2xl bg-[#0d0f14] border-2 z-20 shadow-2xl transition-all duration-500 group-hover:scale-110 flex items-center justify-center
+                ${isLast ? 'border-red-500/80 shadow-red-500/20' : 'border-slate-800 group-hover:border-blue-500'}`}>
+                <span className={`text-[10px] font-black italic ${isLast ? 'text-red-500' : 'text-slate-500 group-hover:text-blue-400'}`}>
+                  {String(idx + 1).padStart(2, '0')}
+                </span>
+                {isLast && (
+                  <div className="absolute -inset-1.5 bg-red-500/10 rounded-2xl animate-ping opacity-30" />
+                )}
               </div>
               
-              <div className={`ml-8 bg-slate-900/40 border rounded-[2rem] overflow-hidden transition-all duration-300 shadow-2xl
-                ${idx === steps.length - 1 ? 'border-red-500/30' : 'border-slate-800 hover:border-blue-500/30'}
-                animate-in slide-in-from-left-6 duration-700`}
+              <div 
+                onClick={() => setSelectedLocation({ filePath: step.file, line: step.line })}
+                className={`bg-slate-900/30 border rounded-[2.5rem] overflow-hidden transition-all duration-500 shadow-xl cursor-pointer relative
+                ${isLast ? 'border-red-500/30 bg-red-950/5' : 'border-slate-800/80 hover:border-blue-500/40'}
+                animate-in slide-in-from-left-6 duration-700 group-hover:shadow-blue-500/5`}
                 style={{ animationDelay: `${idx * 150}ms` }}
               >
-                {/* Header Information */}
-                <div className="px-5 py-3 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="p-1.5 bg-slate-800 rounded-lg border border-slate-700/50">
-                      <FileCode size={12} className="text-blue-400 shrink-0" />
+                
+                {/* Internal Flow Connector Shadow */}
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-transparent via-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                {/* Header: File & Method Identity */}
+                <div className={`px-6 py-4 border-b flex items-center justify-between gap-4 transition-colors
+                  ${isLast ? 'bg-red-950/10 border-red-900/20' : 'bg-slate-900/60 border-slate-800/80 group-hover:bg-slate-800/40'}`}>
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className={`p-2 rounded-xl border transition-colors
+                      ${isLast ? 'bg-red-900/20 border-red-500/20' : 'bg-slate-950 border-slate-800 group-hover:border-blue-500/20'}`}>
+                      <FileCode size={14} className={isLast ? 'text-red-400' : 'text-blue-400'} />
                     </div>
-                    <div className="truncate">
-                      <span className="text-[11px] font-black text-slate-100 tracking-tight">{step.file}</span>
-                      <span className="mx-2 text-slate-700">:</span>
-                      <span className="text-[11px] font-black text-blue-400">Line {step.line}</span>
+                    <div className="truncate flex flex-col">
+                      <div className="flex items-center gap-2">
+                         <span className="text-[11px] font-black text-slate-100 tracking-tight truncate">{step.file.split(/[/\\]/).pop()}</span>
+                         {isNewFile && <LinkIcon size={10} className="text-blue-500/60" />}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[9px] font-black text-blue-500/80 uppercase tracking-widest">Line {step.line}</span>
+                        <div className="w-1 h-1 rounded-full bg-slate-700" />
+                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest truncate">{step.method || 'Anonymous Context'}</span>
+                      </div>
                     </div>
-                    <div className="h-4 w-px bg-slate-800 mx-1" />
-                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-2.5 py-1 bg-slate-950 rounded-lg border border-slate-800 shrink-0 shadow-inner">
-                      {step.method}
-                    </span>
                   </div>
-                  {idx === steps.length - 1 && (
-                    <div className="px-2 py-0.5 bg-red-500/20 border border-red-500/30 rounded text-[8px] font-black text-red-400 uppercase tracking-widest">
-                      Crash Vector
+                  
+                  {isNewFile && idx > 0 && (
+                    <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/5 border border-blue-500/10 rounded-lg animate-pulse">
+                      <MoveRight size={10} className="text-blue-400" />
+                      <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Cross-File Jump</span>
                     </div>
                   )}
                 </div>
                 
-                {/* Step Logic Description */}
-                <div className="p-5 space-y-4">
+                {/* Content: Logical Step Description & Snippet */}
+                <div className="p-6 space-y-6">
                   <div className="flex items-start gap-4">
-                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500/50 mt-1.5 shrink-0" />
-                     <p className="text-[13px] text-slate-300 font-medium leading-relaxed italic">
+                     <div className={`mt-1.5 shrink-0 ${isLast ? 'text-red-500' : 'text-blue-500'}`}>
+                        <ArrowDownRight size={16} />
+                     </div>
+                     <p className={`text-[13px] leading-relaxed font-semibold italic ${isLast ? 'text-red-200' : 'text-slate-300'}`}>
                        "{step.description}"
                      </p>
                   </div>
                   
-                  {/* Code Snippet with 10-line Window */}
+                  {/* Semantic Context Snippet with Code Connectors */}
                   {snippet ? (
-                    <div className="relative group/code">
-                      <div className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100 transition-opacity">
-                         <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest bg-slate-900 px-2 py-1 rounded border border-slate-800">10-Line Diagnostic Window</span>
+                    <div className="relative group/code rounded-2xl overflow-hidden border border-slate-800/80 bg-[#020408] shadow-inner">
+                      <div className="flex items-center justify-between px-4 py-2 bg-slate-950/80 border-b border-slate-800/50">
+                        <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Diagnostic Logic Window</span>
+                        <ExternalLink size={10} className="text-slate-700 group-hover/code:text-blue-400 transition-colors" />
                       </div>
-                      <div className="bg-[#050810] rounded-2xl p-4 border border-slate-800/80 font-mono text-[11px] leading-relaxed overflow-hidden shadow-inner">
+                      <div className="p-4 font-mono text-[11px] leading-relaxed scrollbar-hide">
                         {snippet.map((line, i) => {
                           const lineNum = snippetStartLine + i;
                           const isTarget = lineNum === step.line;
                           return (
-                            <div key={i} className={`flex transition-colors ${isTarget ? 'bg-blue-600/10 -mx-4 px-4 border-l-2 border-blue-500 shadow-[inset_10px_0_15px_-10px_rgba(59,130,246,0.3)]' : 'hover:bg-white/5'}`}>
+                            <div key={i} className={`flex transition-colors relative ${isTarget ? 'bg-blue-600/10 -mx-4 px-4 border-l-2 border-blue-500' : 'opacity-30 hover:opacity-80 hover:bg-white/5'}`}>
                               <span className={`w-10 text-right pr-4 shrink-0 select-none font-bold ${isTarget ? 'text-blue-400' : 'text-slate-700'}`}>
                                 {lineNum}
                               </span>
                               <span className={`whitespace-pre ${isTarget ? 'text-blue-100 font-medium' : 'text-slate-500'}`}>
                                 {line || ' '}
                               </span>
+                              {isTarget && (
+                                <div className="absolute right-4 top-0 h-full flex items-center">
+                                  <div className="flex items-center gap-2">
+                                     <span className="text-[8px] font-black text-blue-500/60 uppercase tracking-tighter">Event Point</span>
+                                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
                       </div>
                     </div>
                   ) : (
-                    <div className="p-6 bg-slate-950/40 rounded-2xl border border-dashed border-slate-800 flex flex-col items-center justify-center text-center space-y-2">
-                       <ShieldAlert size={16} className="text-slate-700" />
-                       <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Source context not available in current sync node</p>
+                    <div className="p-8 bg-slate-950/40 rounded-3xl border border-dashed border-slate-800 flex flex-col items-center justify-center text-center space-y-3 opacity-50">
+                       <Terminal size={24} className="text-slate-700" />
+                       <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">Source Mapping Unavailable</p>
                     </div>
                   )}
                   
-                  {/* Variable State Inference */}
+                  {/* Variable State Snapshot */}
                   {step.variableState && Object.keys(step.variableState).length > 0 && (
                     <div className="pt-2">
-                      <h5 className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <Variable size={12} className="text-purple-500" /> Inferred Variable Snapshot
-                      </h5>
+                      <div className="flex items-center gap-2 mb-4">
+                        <Variable size={12} className="text-blue-500" />
+                        <h5 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Inferred Runtime State</h5>
+                      </div>
                       <div className="flex flex-wrap gap-2.5">
                         {Object.entries(step.variableState).map(([name, val], i) => (
-                          <div key={i} className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center gap-3 shadow-md group/var hover:border-purple-500/30 transition-all">
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-tight group-hover/var:text-slate-300">{name}</span>
+                          <div key={i} className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center gap-3 shadow-lg group/var hover:border-blue-500/30 transition-all">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter group-hover/var:text-blue-200">{name}</span>
                             <div className="h-3 w-px bg-slate-800" />
-                            <span className="text-[11px] text-emerald-400 font-mono font-bold">{val}</span>
+                            <span className="text-[11px] text-emerald-400 font-mono font-bold">{String(val)}</span>
                           </div>
                         ))}
                       </div>
@@ -151,24 +197,13 @@ export const CodeFlowTrace: React.FC<CodeFlowTraceProps> = ({ steps, sourceFiles
           );
         })}
       </div>
+      
+      <style>{`
+        @keyframes flow-pulse {
+          0% { transform: translateY(0); }
+          100% { transform: translateY(1000px); }
+        }
+      `}</style>
     </div>
   );
 };
-
-const ShieldAlert = ({ size, className }: any) => (
-  <svg 
-    width={size || 16} 
-    height={size || 16} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    className={className}
-  >
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-    <line x1="12" y1="8" x2="12" y2="12"></line>
-    <line x1="12" y1="16" x2="12.01" y2="16"></line>
-  </svg>
-);

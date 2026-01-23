@@ -1,10 +1,10 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, SystemMetrics, TimeBucket, ModelOption, TestReport, RegressiveReport, TestCase, CodeFile, PipelineStep, KnowledgeFile } from '../types';
-import { parseLogFile, chunkLogEntries, buildSearchIndex, serializeIndex, deserializeIndex } from '../utils/logParser';
+import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, SystemMetrics, TimeBucket, ModelOption, TestReport, RegressiveReport, TestCase, CodeFile, PipelineStep, KnowledgeFile, CodeMarker } from '../types';
+import { parseLogFile, chunkLogEntries, buildSearchIndex, serializeIndex, deserializeIndex, generateTimeBuckets } from '../utils/logParser';
 import JSZip from 'jszip';
 
-const STORAGE_KEY = 'cloudlog_ai_session_v3';
+const STORAGE_KEY = 'cloudlog_ai_session_v4';
 
 const initialMetrics: SystemMetrics = {
   queryLatency: [],
@@ -24,7 +24,6 @@ export function useLogStore() {
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     const baseState: AppState = {
-      apiKey: null,
       isProcessing: false,
       isGeneratingSuggestions: false,
       ingestionProgress: 0,
@@ -44,7 +43,10 @@ export function useLogStore() {
       regressiveReport: null,
       suggestions: [],
       saveStatus: 'idle',
-      lastSaved: null
+      lastSaved: null,
+      requiredContextFiles: [],
+      selectedLocation: null,
+      selectedFilePath: null
     };
 
     if (saved) {
@@ -61,7 +63,8 @@ export function useLogStore() {
             timeRange: {
               start: parsed.stats.timeRange?.start ? new Date(parsed.stats.timeRange.start) : null,
               end: parsed.stats.timeRange?.end ? new Date(parsed.stats.timeRange.end) : null,
-            }
+            },
+            timeBuckets: parsed.stats.timeBuckets || []
           } : null
         };
       } catch (e) { console.error("Restore error", e); }
@@ -86,14 +89,16 @@ export function useLogStore() {
           lastSaved: new Date().toISOString(),
           searchIndex: serializeIndex(state.searchIndex),
           sourceFiles: state.sourceFiles,
-          knowledgeFiles: state.knowledgeFiles
+          knowledgeFiles: state.knowledgeFiles,
+          requiredContextFiles: state.requiredContextFiles,
+          selectedFilePath: state.selectedFilePath
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
         setState(s => ({ ...s, saveStatus: 'idle' }));
       } catch (e) { console.error("Save error", e); }
     }, 2000);
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [state.messages.length, state.stats, state.selectedModelId, state.viewMode, state.activeStep, state.searchIndex, state.sourceFiles, state.knowledgeFiles]);
+  }, [state.messages.length, state.stats, state.selectedModelId, state.viewMode, state.activeStep, state.searchIndex, state.sourceFiles, state.knowledgeFiles, state.requiredContextFiles, state.selectedFilePath]);
 
   const setProcessing = useCallback((val: boolean) => setState(s => ({ ...s, isProcessing: val })), []);
   const setGeneratingSuggestions = useCallback((val: boolean) => setState(s => ({ ...s, isGeneratingSuggestions: val })), []);
@@ -102,6 +107,26 @@ export function useLogStore() {
   const setActiveStep = useCallback((step: PipelineStep) => setState(s => ({ ...s, activeStep: step })), []);
   const setSettingsOpen = useCallback((open: boolean) => setState(s => ({ ...s, isSettingsOpen: open })), []);
   const setSuggestions = useCallback((suggestions: string[]) => setState(s => ({ ...s, suggestions })), []);
+  const setSelectedLocation = useCallback((loc: { filePath: string; line: number } | null) => setState(s => ({ ...s, selectedLocation: loc, selectedFilePath: loc ? loc.filePath : s.selectedFilePath })), []);
+  const setSelectedFilePath = useCallback((path: string | null) => setState(s => ({ ...s, selectedFilePath: path, selectedLocation: null })), []);
+
+  const updateSourceFileMarkers = useCallback((logs: LogEntry[], sourceFiles: CodeFile[]) => {
+    return sourceFiles.map(file => {
+      const markers: CodeMarker[] = [];
+      logs.forEach(log => {
+        log.metadata.sourceLocations?.forEach(loc => {
+          if (file.path.endsWith(loc.filePath) || loc.filePath.endsWith(file.path)) {
+            markers.push({
+              line: loc.line,
+              severity: log.severity,
+              message: log.message
+            });
+          }
+        });
+      });
+      return { ...file, markers };
+    });
+  }, []);
 
   const clearSession = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
@@ -116,12 +141,15 @@ export function useLogStore() {
       searchIndex: null, 
       suggestions: [], 
       lastSaved: null,
-      activeStep: 'ingestion'
+      activeStep: 'ingestion',
+      requiredContextFiles: [],
+      selectedLocation: null,
+      selectedFilePath: null
     }));
   }, []);
 
   const clearSourceFiles = useCallback(() => {
-    setState(s => ({ ...s, sourceFiles: [] }));
+    setState(s => ({ ...s, sourceFiles: [], selectedFilePath: null, selectedLocation: null }));
   }, []);
 
   const clearKnowledgeFiles = useCallback(() => {
@@ -189,14 +217,18 @@ export function useLogStore() {
       }
     }
 
-    setState(s => ({ 
-      ...s, 
-      sourceFiles: [...s.sourceFiles, ...codeFiles], 
-      isProcessing: false, 
-      ingestionProgress: 100,
-      activeStep: 'knowledge'
-    }));
-  }, []);
+    setState(s => {
+      const updatedFiles = [...s.sourceFiles, ...codeFiles];
+      const markedFiles = updateSourceFileMarkers(s.logs, updatedFiles);
+      return { 
+        ...s, 
+        sourceFiles: markedFiles, 
+        isProcessing: false, 
+        ingestionProgress: 100,
+        activeStep: 'knowledge'
+      };
+    });
+  }, [updateSourceFileMarkers]);
 
   const processNewFile = useCallback(async (file: File) => {
     setProcessing(true);
@@ -207,6 +239,7 @@ export function useLogStore() {
       const { entries, fileInfo } = parseLogFile(content, file.name);
       const chunks = chunkLogEntries(entries);
       const searchIndex = buildSearchIndex(chunks);
+      const timeBuckets = generateTimeBuckets(entries);
 
       const severities: Record<Severity, number> = {
         [Severity.FATAL]: 0, [Severity.ERROR]: 0, [Severity.WARN]: 0,
@@ -223,7 +256,7 @@ export function useLogStore() {
         totalEntries: entries.length,
         severities,
         timeRange: { start: entries[0]?.timestamp || null, end: entries[entries.length - 1]?.timestamp || null },
-        timeBuckets: [],
+        timeBuckets,
         fileSize: file.size,
         fileName: file.name,
         chunkCount: chunks.length,
@@ -241,7 +274,8 @@ export function useLogStore() {
         ingestionProgress: 100,
         messages: [],
         suggestions: [],
-        activeStep: 'analysis' 
+        activeStep: 'analysis',
+        requiredContextFiles: Array.from(inferredFilesSet)
       }));
     } catch (err) {
       console.error("Ingestion error", err);
@@ -265,7 +299,6 @@ export function useLogStore() {
     setProcessing(true);
     setIngestionProgress(0);
     
-    // Simulate 5GB virtual ingestion by generating many entries
     const simulatedEntriesCount = 50000;
     const entries: LogEntry[] = [];
     const baseDate = new Date();
@@ -282,13 +315,15 @@ export function useLogStore() {
         raw: `[${new Date(baseDate.getTime() + i * 1000).toISOString()}] ${severity} microservice-${i % 5} - Simulated event trace ${i}`,
         metadata: {
           hasStackTrace: severity === Severity.FATAL,
-          signature: `SIMULATED_SIG_${i % 10}`
+          signature: `SIMULATED_SIG_${i % 10}`,
+          sourceLocations: severity === Severity.FATAL ? [{ filePath: 'auth_service.py', line: 42 }] : undefined
         }
       });
     }
 
     const chunks = chunkLogEntries(entries);
     const searchIndex = buildSearchIndex(chunks);
+    const timeBuckets = generateTimeBuckets(entries);
 
     const severities: Record<Severity, number> = {
       [Severity.FATAL]: 0, [Severity.ERROR]: 0, [Severity.WARN]: 0,
@@ -300,7 +335,7 @@ export function useLogStore() {
       totalEntries: entries.length,
       severities,
       timeRange: { start: entries[0].timestamp, end: entries[entries.length - 1].timestamp },
-      timeBuckets: [],
+      timeBuckets,
       fileSize: 5 * 1024 * 1024 * 1024,
       fileName: 'virtual_stress_test_5GB.log',
       chunkCount: chunks.length,
@@ -317,6 +352,7 @@ export function useLogStore() {
       stats,
       isProcessing: false,
       activeStep: 'analysis',
+      requiredContextFiles: ['auth_service.py', 'database_pool.java'],
       testReport: {
         throughput: '1.2 GB/s',
         compressionRatio: '14.2:1',
@@ -337,7 +373,6 @@ export function useLogStore() {
 
     setState(s => ({ ...s, regressiveReport: { benchmarks: { indexingSpeed: 'Calculating...', p95Latency: '...', memoryEfficiency: '...', tokenCoverage: '...' }, testCases } }));
 
-    // Simulate test execution
     await new Promise(r => setTimeout(r, 2000));
     
     const finalTestCases: TestCase[] = testCases.map(tc => ({ ...tc, status: 'passed', duration: `${Math.floor(Math.random() * 500 + 100)}ms` }));
@@ -364,6 +399,8 @@ export function useLogStore() {
     processKnowledgeFiles,
     clearSourceFiles,
     clearKnowledgeFiles,
+    setSelectedLocation,
+    setSelectedFilePath,
     addMessage: (msg: ChatMessage) => setState(s => ({ ...s, messages: [...s.messages, msg] })),
     updateLastMessageChunk: (chunk: string) => setState(s => {
       const messages = [...s.messages];

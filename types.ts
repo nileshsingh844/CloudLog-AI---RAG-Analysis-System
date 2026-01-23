@@ -1,4 +1,3 @@
-
 export enum Severity {
   FATAL = 'FATAL',
   ERROR = 'ERROR',
@@ -110,13 +109,13 @@ export interface UnitTest {
 export interface DebugSolution {
   id: string;
   strategy: string;
-  confidence: number; // Confidence Scoring
+  confidence: number;
   rootCause: string;
   fixes: CodeFix[];
   bestPractices: string[];
-  reproSteps?: string[]; // Reproduction steps
-  unitTests?: UnitTest[]; // Test Case Generation
-  preventionStrategy?: string; // Regression Prevention
+  reproSteps?: string[];
+  unitTests?: UnitTest[];
+  preventionStrategy?: string;
 }
 
 export interface LogEntry {
@@ -134,11 +133,18 @@ export interface LogEntry {
   };
 }
 
+export interface CodeMarker {
+  line: number;
+  severity: Severity;
+  message: string;
+}
+
 export interface CodeFile {
   path: string;
   content: string;
   language: string;
   size: number;
+  markers?: CodeMarker[];
 }
 
 export interface KnowledgeFile {
@@ -256,7 +262,6 @@ export interface TestReport {
 }
 
 export interface AppState {
-  apiKey: string | null;
   isProcessing: boolean;
   isGeneratingSuggestions: boolean;
   ingestionProgress: number;
@@ -277,4 +282,7 @@ export interface AppState {
   suggestions: string[];
   saveStatus: 'idle' | 'saving' | 'saved' | 'error';
   lastSaved: Date | null;
+  requiredContextFiles: string[];
+  selectedLocation: { filePath: string; line: number } | null;
+  selectedFilePath: string | null;
 }

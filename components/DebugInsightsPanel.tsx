@@ -35,41 +35,32 @@ export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solution
   };
 
   return (
-    <div className="space-y-6 my-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="flex items-center justify-between px-2 mb-2">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-600/20 rounded-lg">
-            <Zap size={16} className="text-blue-400" />
-          </div>
-          <div>
-            <h4 className="text-[12px] font-black text-slate-100 uppercase tracking-widest">Diagnostic Remediation Engine</h4>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Pattern-Matched Fix Proposals</p>
-          </div>
+    <div className="space-y-4 my-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+      <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="flex items-center gap-2">
+          <Zap size={14} className="text-blue-500" />
+          <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest italic">Proposed Remediation</h4>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex gap-2">
+          {solutions.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => setActiveSolutionIdx(idx)}
+              className={`px-3 py-1 rounded-md text-[9px] font-bold uppercase transition-all
+                ${activeSolutionIdx === idx 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-slate-800 text-slate-500 hover:text-slate-300'}`}
+            >
+              Fix {idx + 1}
+            </button>
+          ))}
           <button 
             onClick={() => setIsExportOpen(!isExportOpen)}
-            className={`p-2 rounded-xl border transition-all ${isExportOpen ? 'bg-blue-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'}`}
-            title="Export Options"
+            className="p-1.5 rounded-md bg-slate-800 text-slate-400 hover:text-white transition-all"
           >
-            <FileOutput size={16} />
+            <FileOutput size={14} />
           </button>
-          
-          <div className="flex gap-2">
-            {solutions.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setActiveSolutionIdx(idx)}
-                className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest transition-all
-                  ${activeSolutionIdx === idx 
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 border border-blue-400/30' 
-                    : 'bg-slate-900 border border-slate-800 text-slate-500 hover:text-slate-300'}`}
-              >
-                Path {idx + 1}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -79,166 +70,69 @@ export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solution
         </div>
       )}
 
-      <div className="bg-slate-900/40 border border-slate-800 rounded-[2.5rem] overflow-hidden shadow-2xl">
-        <div className="px-6 py-5 bg-slate-900/60 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Strategy:</span>
-              <span className="text-sm font-black text-blue-400 italic tracking-tight">{activeSolution.strategy}</span>
-            </div>
-            <div className="h-4 w-px bg-slate-800" />
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Confidence:</span>
-              <div className="flex items-center gap-1">
-                <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-emerald-500" style={{ width: `${activeSolution.confidence * 100}%` }} />
-                </div>
-                <span className="text-[10px] font-bold text-emerald-500">{(activeSolution.confidence * 100).toFixed(0)}%</span>
-              </div>
-            </div>
+      <div className="bg-slate-900/30 rounded-2xl p-6 space-y-6">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Root Cause Diagnosis</span>
+            <p className="text-[13px] text-slate-300 font-medium italic border-l-2 border-blue-500 pl-4">
+              "{activeSolution.rootCause}"
+            </p>
           </div>
-          <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center gap-2">
-            <CheckCircle2 size={12} className="text-emerald-500" />
-            <span className="text-[9px] font-black text-emerald-500 uppercase">Operational Match</span>
+          <div className="flex flex-col items-end shrink-0">
+             <span className="text-[9px] font-black text-emerald-500 uppercase">System Confidence</span>
+             <span className="text-xl font-black text-white italic">{(activeSolution.confidence * 100).toFixed(0)}%</span>
           </div>
         </div>
 
-        <div className="p-6 space-y-8">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-              <AlertCircle size={14} className="text-red-400" /> Root Cause Breakdown
-            </div>
-            <div className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800/50 text-[13px] text-slate-300 leading-relaxed font-medium italic border-l-4 border-l-red-500/50">
-              "{activeSolution.rootCause}"
-            </div>
-          </div>
-
-          {/* Reproduction Steps */}
-          {activeSolution.reproSteps && activeSolution.reproSteps.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                <ListOrdered size={14} className="text-amber-400" /> Reproduction Protocol
+        {/* Fix Suggestions */}
+        <div className="space-y-4">
+          {activeSolution.fixes.map((fix, idx) => (
+            <div key={idx} className="space-y-3">
+              <div className="flex items-center gap-2">
+                <FileCode size={12} className="text-blue-400" />
+                <span className="text-[11px] font-black text-slate-300">{fix.filePath}</span>
               </div>
-              <div className="space-y-2">
-                {activeSolution.reproSteps.map((step, i) => (
-                  <div key={i} className="flex items-start gap-3 p-3 bg-slate-950/40 rounded-xl border border-slate-800/40">
-                    <span className="text-[10px] font-black text-blue-500 w-4">{i + 1}.</span>
-                    <p className="text-xs text-slate-300 font-medium">{step}</p>
-                  </div>
-                ))}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className="bg-[#050810] rounded-xl p-3 border border-slate-800/60 font-mono text-[11px] overflow-hidden">
+                  <p className="text-[8px] font-bold text-red-500 uppercase mb-2 opacity-50">Current</p>
+                  {fix.originalCode.split('\n').map((line, i) => (
+                    <div key={i} className="flex opacity-50"><span className="mr-2 text-red-900">-</span>{line || ' '}</div>
+                  ))}
+                </div>
+                <div className="bg-[#050810] rounded-xl p-3 border border-emerald-500/20 font-mono text-[11px] overflow-hidden">
+                  <p className="text-[8px] font-bold text-emerald-500 uppercase mb-2">Suggested</p>
+                  {fix.suggestedCode.split('\n').map((line, i) => (
+                    <div key={i} className="flex"><span className="mr-2 text-emerald-900">+</span>{line || ' '}</div>
+                  ))}
+                </div>
               </div>
+              <p className="text-[11px] text-slate-500 italic bg-slate-950/50 p-3 rounded-lg">
+                <Lightbulb size={10} className="inline mr-1 text-amber-500" /> {fix.explanation}
+              </p>
             </div>
-          )}
+          ))}
+        </div>
 
-          {/* Fix Suggestions */}
-          <div className="space-y-6">
-            <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-              <Split size={14} className="text-blue-400" /> Proposed Code Diff
-            </div>
-            
-            {activeSolution.fixes.map((fix, idx) => (
-              <div key={idx} className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <FileCode size={14} className="text-blue-400" />
-                  <span className="text-xs font-bold text-slate-200">{fix.filePath}</span>
-                  <div className="px-2 py-0.5 bg-blue-600/10 border border-blue-500/20 rounded text-[8px] font-black text-blue-400 uppercase tracking-widest">
-                    {fix.title}
-                  </div>
+        {/* Unit Test Generation */}
+        {activeSolution.unitTests && activeSolution.unitTests.length > 0 && (
+          <div className="space-y-3 pt-4 border-t border-slate-800/60">
+            <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Generated Validation Test</h5>
+            {activeSolution.unitTests.map((test, i) => (
+              <div key={i} className="relative group">
+                <div className="bg-[#050810] rounded-xl p-4 border border-slate-800/60 font-mono text-[11px] text-blue-300/80 overflow-x-auto whitespace-pre">
+                  {test.code}
                 </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-2">Current Implementation</p>
-                    <div className="bg-[#0c0f17] rounded-2xl p-4 border border-slate-800 font-mono text-[11px] leading-relaxed overflow-hidden shadow-inner">
-                      {fix.originalCode.split('\n').map((line, i) => (
-                        <div key={i} className="flex bg-red-500/5 border-l-2 border-red-500/30 -mx-4 px-4">
-                          <span className="text-red-500/40 mr-3 shrink-0">-</span>
-                          <span className="text-slate-500 line-through decoration-red-500/20">{line || ' '}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest px-2">Proposed Revision</p>
-                    <div className="bg-[#0c0f17] rounded-2xl p-4 border border-slate-800 font-mono text-[11px] leading-relaxed overflow-hidden shadow-inner">
-                      {fix.suggestedCode.split('\n').map((line, i) => (
-                        <div key={i} className="flex bg-emerald-500/5 border-l-2 border-emerald-500/30 -mx-4 px-4">
-                          <span className="text-emerald-500 mr-3 shrink-0">+</span>
-                          <span className="text-emerald-300 font-medium">{line || ' '}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-blue-600/5 border border-blue-500/10 p-4 rounded-2xl space-y-2">
-                  <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">
-                    <Lightbulb size={12} /> Rationale
-                  </p>
-                  <p className="text-xs text-slate-400 leading-relaxed">{fix.explanation}</p>
-                </div>
+                <button 
+                  onClick={() => handleCopyTest(test.code, i)}
+                  className="absolute top-3 right-3 p-2 bg-slate-900 rounded-lg text-slate-500 hover:text-white opacity-0 group-hover:opacity-100 transition-all shadow-xl"
+                >
+                  {copiedTestIdx === i ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                </button>
               </div>
             ))}
           </div>
-
-          {/* Unit Test Generation */}
-          {activeSolution.unitTests && activeSolution.unitTests.length > 0 && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                <TestTube size={14} className="text-emerald-400" /> Generated Reproducer Tests
-              </div>
-              <div className="grid grid-cols-1 gap-4">
-                {activeSolution.unitTests.map((test, i) => (
-                  <div key={i} className="bg-slate-950/60 rounded-2xl border border-slate-800 p-5 space-y-3 relative group">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <FileCode size={14} className="text-emerald-500" />
-                        <span className="text-xs font-bold text-slate-200">{test.title}</span>
-                      </div>
-                      <button 
-                        onClick={() => handleCopyTest(test.code, i)}
-                        className="p-2 hover:bg-slate-800 rounded-lg text-slate-500 hover:text-white transition-all"
-                      >
-                        {copiedTestIdx === i ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                      </button>
-                    </div>
-                    <div className="bg-[#050810] rounded-xl p-4 border border-slate-800/60 font-mono text-[11px] text-emerald-300/80 leading-relaxed overflow-x-auto whitespace-pre">
-                      {test.code}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Regression Prevention */}
-          {activeSolution.preventionStrategy && (
-            <div className="pt-6 border-t border-slate-800/60 space-y-3">
-              <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                <ShieldIcon size={14} className="text-emerald-400" /> Regression Prevention Strategy
-              </div>
-              <div className="p-5 bg-emerald-900/10 border border-emerald-500/20 rounded-2xl text-[13px] text-slate-300 leading-relaxed font-medium italic">
-                "{activeSolution.preventionStrategy}"
-              </div>
-            </div>
-          )}
-
-          {/* Best Practices */}
-          <div className="pt-4 border-t border-slate-800/60">
-             <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">
-              <ShieldCheck size={14} className="text-emerald-400" /> Best Practice Guardrails
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {activeSolution.bestPractices.map((bp, i) => (
-                <div key={i} className="flex items-center gap-3 px-4 py-2.5 bg-slate-950/40 rounded-xl border border-slate-800/40 group hover:border-emerald-500/30 transition-all">
-                  <CheckCircle2 size={12} className="text-emerald-500 shrink-0" />
-                  <span className="text-[11px] text-slate-400 font-bold tracking-tight">{bp}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

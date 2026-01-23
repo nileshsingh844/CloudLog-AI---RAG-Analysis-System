@@ -1,7 +1,6 @@
-
 import React, { memo } from 'react';
 import { ModelOption, LLMProvider } from '../types';
-import { X, Cpu, Zap, Settings, Shield, Info, ExternalLink, Key, Trash2 } from 'lucide-react';
+import { X, Cpu, Zap, Settings, Shield, Info, Trash2 } from 'lucide-react';
 import { AVAILABLE_MODELS } from '../store/useLogStore';
 
 interface IntelligenceHubProps {
@@ -9,7 +8,6 @@ interface IntelligenceHubProps {
   onClose: () => void;
   selectedModelId: string;
   onSelectModel: (id: string) => void;
-  onManageKeys: () => void;
   onClearSession: () => void;
 }
 
@@ -18,7 +16,6 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
   onClose,
   selectedModelId,
   onSelectModel,
-  onManageKeys,
   onClearSession
 }) => {
   if (!isOpen) return null;
@@ -49,28 +46,8 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
 
         {/* Content */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-6 sm:space-y-8 scrollbar-hide">
-          {/* Key Management Section */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                <Key size={12} className="text-blue-500" />
-                Identity Management
-              </h3>
-              <div className="bg-slate-800/30 border border-slate-800 rounded-2xl p-4 flex flex-col items-start gap-4 h-full">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-200">Google Gemini Auth</p>
-                  <p className="text-[10px] text-slate-500 mt-1">Authorization persistent through authorized provider.</p>
-                </div>
-                <button 
-                  onClick={onManageKeys}
-                  className="w-full mt-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/10 flex items-center justify-center gap-2"
-                >
-                  <Key size={12} />
-                  Manage Key
-                </button>
-              </div>
-            </div>
-
+          {/* Identity and Management UI removed as per Gemini API guidelines */}
+          <section className="grid grid-cols-1 gap-4">
             <div>
               <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                 <Trash2 size={12} className="text-red-500" />

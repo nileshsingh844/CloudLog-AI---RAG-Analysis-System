@@ -1,5 +1,5 @@
 
-import { LogEntry, Severity, SearchIndex, LogChunk, FileInfo, SourceLocation } from '../types';
+import { LogEntry, Severity, SearchIndex, LogChunk, FileInfo, SourceLocation, TimeBucket } from '../types';
 
 /**
  * Universal Log Pattern Library
@@ -40,7 +40,7 @@ const SEVERITY_LEVELS: Record<string, Severity> = {
 };
 
 /**
- * Stack Trace Extraction Patterns
+ * Stack Trace Extraction & Detection Patterns
  */
 const STACK_TRACE_PATTERNS = [
   // Java: at com.package.Class.method(FileName.java:123)
@@ -55,26 +55,13 @@ const STACK_TRACE_PATTERNS = [
   /([/\w\.-]+\.\w+):(\d+)/
 ];
 
-/**
- * Detects if a file path is likely part of a library or third-party dependency.
- */
+const STACK_CONTINUATION_REGEX = /^\s+(at\s+|Caused\s+by|...|[\w$.]+\(.*\)|---|\s* File\s*|Traceback)|^\t/i;
+
 function isLibraryPath(path: string): boolean {
   const libMarkers = [
-    'node_modules',
-    'site-packages',
-    'dist-packages',
-    'vendor',
-    'lib/python',
-    'maven2',
-    '.m2',
-    'jdk',
-    'jre',
-    'jar:',
-    'target/classes',
-    'usr/lib',
-    'usr/local/lib',
-    'bower_components',
-    'Internal.Packages'
+    'node_modules', 'site-packages', 'dist-packages', 'vendor', 'lib/python',
+    'maven2', '.m2', 'jdk', 'jre', 'jar:', 'target/classes', 'usr/lib',
+    'usr/local/lib', 'bower_components', 'Internal.Packages'
   ];
   return libMarkers.some(marker => path.toLowerCase().includes(marker.toLowerCase()));
 }
@@ -89,24 +76,15 @@ export function extractSourceLocations(raw: string): SourceLocation[] {
       if (match) {
         let loc: SourceLocation | null = null;
         
-        // Java match: [1] class, [2] method, [3] file, [4] line
         if (pattern.source.includes('at\\s+([\\w$.]+)')) {
           loc = { filePath: match[3], line: parseInt(match[4]), method: `${match[1]}.${match[2]}` };
-        } 
-        // Python match: [1] file, [2] line, [3] method
-        else if (pattern.source.includes('File\\s+"([^"]+)"')) {
+        } else if (pattern.source.includes('File\\s+"([^"]+)"')) {
           loc = { filePath: match[1], line: parseInt(match[2]), method: match[3] };
-        }
-        // Node match: [1] method, [2] file, [3] line
-        else if (pattern.source.includes('at\\s+(?:(.+)\\s+\\()?')) {
+        } else if (pattern.source.includes('at\\s+(?:(.+)\\s+\\()?')) {
           loc = { filePath: match[2], line: parseInt(match[3]), method: match[1] };
-        }
-        // C# match: [1] method, [2] file, [3] line
-        else if (pattern.source.includes('at\\s+(.+)\\s+in\\s+(.+):line')) {
+        } else if (pattern.source.includes('at\\s+(.+)\\s+in\\s+(.+):line')) {
           loc = { filePath: match[2], line: parseInt(match[3]), method: match[1] };
-        }
-        // General match: [1] file, [2] line
-        else {
+        } else {
           loc = { filePath: match[1], line: parseInt(match[2]) };
         }
 
@@ -119,30 +97,24 @@ export function extractSourceLocations(raw: string): SourceLocation[] {
     }
   });
 
-  // Deduplicate by file and line
   return Array.from(new Set(locations.map(l => `${l.filePath}:${l.line}`)))
     .map(key => locations.find(l => `${l.filePath}:${l.line}` === key)!);
 }
 
 export function detectFormat(filename: string, content: string): { format: string, category: string } {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
   const firstLines = content.split('\n').slice(0, 10);
-
   try {
     if (firstLines[0]?.trim().startsWith('{')) {
       JSON.parse(firstLines[0]);
       return { format: 'JSON (Structured)', category: 'Modern App' };
     }
   } catch {}
-
   if (firstLines[0]?.trim().startsWith('<?xml')) return { format: 'XML', category: 'Legacy App' };
-  
   for (const [key, pattern] of Object.entries(LOG_PATTERNS)) {
     if (firstLines.some(line => pattern.regex.test(line))) {
       return { format: key.replace(/_/g, ' ').toUpperCase(), category: pattern.category };
     }
   }
-
   return { format: 'Generic Text', category: 'General' };
 }
 
@@ -159,15 +131,10 @@ export function getLogSignature(message: string): string {
 export function buildSearchIndex(chunks: LogChunk[]): SearchIndex {
   const invertedIndex = new Map<string, Set<string>>();
   const termDocCount = new Map<string, number>();
-
   chunks.forEach(chunk => {
     const tokens = new Set(
-      chunk.content.toLowerCase()
-        .replace(/[^\w\s]/g, ' ')
-        .split(/\s+/)
-        .filter(t => t.length > 2)
+      chunk.content.toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(t => t.length > 2)
     );
-
     tokens.forEach(token => {
       if (!invertedIndex.has(token)) {
         invertedIndex.set(token, new Set());
@@ -177,50 +144,70 @@ export function buildSearchIndex(chunks: LogChunk[]): SearchIndex {
       termDocCount.set(token, termDocCount.get(token)! + 1);
     });
   });
-
   const termWeights = new Map<string, number>();
   const totalDocs = chunks.length;
   termDocCount.forEach((count, term) => {
     termWeights.set(term, Math.log(totalDocs / (1 + count)));
   });
-
   return { invertedIndex, termWeights };
 }
 
-/**
- * Serializes SearchIndex for local storage
- */
 export function serializeIndex(index: SearchIndex | null): any {
   if (!index) return null;
   const invertedIndexObj: Record<string, string[]> = {};
-  index.invertedIndex.forEach((val, key) => {
-    invertedIndexObj[key] = Array.from(val);
-  });
-  
+  index.invertedIndex.forEach((val, key) => { invertedIndexObj[key] = Array.from(val); });
   const termWeightsObj: Record<string, number> = {};
-  index.termWeights.forEach((val, key) => {
-    termWeightsObj[key] = val;
-  });
-
+  index.termWeights.forEach((val, key) => { termWeightsObj[key] = val; });
   return { invertedIndex: invertedIndexObj, termWeights: termWeightsObj };
 }
 
-/**
- * Deserializes SearchIndex from local storage
- */
 export function deserializeIndex(serialized: any): SearchIndex | null {
   if (!serialized) return null;
   const invertedIndex = new Map<string, Set<string>>();
-  Object.entries(serialized.invertedIndex || {}).forEach(([key, val]) => {
-    invertedIndex.set(key, new Set(val as string[]));
-  });
-
+  Object.entries(serialized.invertedIndex || {}).forEach(([key, val]) => { invertedIndex.set(key, new Set(val as string[])); });
   const termWeights = new Map<string, number>();
-  Object.entries(serialized.termWeights || {}).forEach(([key, val]) => {
-    termWeights.set(key, val as number);
+  Object.entries(serialized.termWeights || {}).forEach(([key, val]) => { termWeights.set(key, val as number); });
+  return { invertedIndex, termWeights };
+}
+
+export function generateTimeBuckets(entries: LogEntry[], bucketCount: number = 24): TimeBucket[] {
+  const validEntries = entries.filter(e => e.timestamp);
+  if (validEntries.length === 0) return [];
+  
+  const timestamps = validEntries.map(e => e.timestamp!.getTime());
+  const start = Math.min(...timestamps);
+  const end = Math.max(...timestamps);
+  const totalRange = end - start;
+  
+  if (totalRange <= 0) {
+    return [{ 
+      time: new Date(start).toISOString(), 
+      count: entries.length, 
+      errorCount: entries.filter(e => e.severity === Severity.ERROR || e.severity === Severity.FATAL).length 
+    }];
+  }
+
+  const bucketSize = totalRange / bucketCount;
+  const buckets: TimeBucket[] = Array.from({ length: bucketCount }, (_, i) => ({
+    time: new Date(start + i * bucketSize).toISOString(),
+    count: 0,
+    errorCount: 0
+  }));
+
+  entries.forEach(entry => {
+    if (!entry.timestamp) return;
+    const time = entry.timestamp.getTime();
+    let index = Math.floor((time - start) / bucketSize);
+    if (index >= bucketCount) index = bucketCount - 1;
+    if (index < 0) index = 0;
+    
+    buckets[index].count++;
+    if (entry.severity === Severity.ERROR || entry.severity === Severity.FATAL) {
+      buckets[index].errorCount++;
+    }
   });
 
-  return { invertedIndex, termWeights };
+  return buckets;
 }
 
 export function parseLogFile(content: string, filename: string, offset: number = 0): { entries: LogEntry[], fileInfo: FileInfo } {
@@ -233,24 +220,19 @@ export function parseLogFile(content: string, filename: string, offset: number =
     if (lines.length === 0) return;
     const fullRaw = lines.join('\n');
     let severity = Severity.UNKNOWN;
-    
     for (const [label, level] of Object.entries(SEVERITY_LEVELS)) {
-      const regex = new RegExp(`\\b${label}\\b`, 'i');
-      if (regex.test(fullRaw)) {
+      if (new RegExp(`\\b${label}\\b`, 'i').test(fullRaw)) {
         severity = level;
         break;
       }
     }
-
     let timestamp: Date | null = null;
     const tsMatch = fullRaw.match(/(\d{4}[-/]\d{2}[-/]\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)|(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
     if (tsMatch) {
       timestamp = new Date(tsMatch[0]);
       if (isNaN(timestamp.getTime())) timestamp = null;
     }
-
     const sourceLocations = extractSourceLocations(fullRaw);
-
     entries.push({
       id: `log-${offset + entries.length}`,
       timestamp,
@@ -268,15 +250,25 @@ export function parseLogFile(content: string, filename: string, offset: number =
 
   const NEW_ENTRY_PREFIX = /^(\d{4}|\w{3}\s+\d|\[\d|<)/;
 
-  rawLines.forEach((line) => {
-    if (line.trim() === '') return;
-    if (NEW_ENTRY_PREFIX.test(line) && currentEntryLines.length > 0) {
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
+    if (line.trim() === '') continue;
+
+    const looksLikeNewEntry = NEW_ENTRY_PREFIX.test(line);
+    const looksLikeStackTrace = STACK_CONTINUATION_REGEX.test(line);
+
+    // Lookahead logic: if it looks like a new entry, confirm it isn't just a nested log line 
+    // that belongs to a multi-line stack trace/exception.
+    if (looksLikeNewEntry && !looksLikeStackTrace && currentEntryLines.length > 0) {
+      // Basic state-based grouping check: 
+      // If we are currently processing a block that definitely has stack trace markers,
+      // and the next line is indented or has stack-like traits, we might want to continue.
       finalizeEntry(currentEntryLines);
       currentEntryLines = [line];
     } else {
       currentEntryLines.push(line);
     }
-  });
+  }
 
   finalizeEntry(currentEntryLines);
 
@@ -285,7 +277,7 @@ export function parseLogFile(content: string, filename: string, offset: number =
     extension: filename.split('.').pop() || '',
     format,
     compression: filename.match(/\.(gz|bz2|xz|zst|zip)$/) ? filename.split('.').pop()! : null,
-    parserUsed: format === 'JSON (Structured)' ? 'JSONLogParser' : 'GenericTextParser',
+    parserUsed: 'SmartForensicParser',
     isBinary: false,
     category
   };
@@ -293,35 +285,84 @@ export function parseLogFile(content: string, filename: string, offset: number =
   return { entries, fileInfo };
 }
 
+/**
+ * Refactored chunking logic for improved stack trace association.
+ * Ensures that if a single large log entry is split across chunks, 
+ * the context (header, timestamp, severity) is repeated in the subsequent segments.
+ */
 export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): LogChunk[] {
   const chunks: LogChunk[] = [];
-  let current: LogEntry[] = [];
-  let currentSize = 0;
+  let currentBatch: LogEntry[] = [];
+  let currentBatchTokens = 0;
 
-  entries.forEach(entry => {
-    const entrySize = Math.ceil(entry.raw.length / 4);
-    if (currentSize + entrySize > maxTokens && current.length > 0) {
-      chunks.push({
-        id: `chunk-${chunks.length}`,
-        content: current.map(e => e.raw).join('\n'),
-        entries: [...current],
-        tokenCount: currentSize
-      });
-      current = [];
-      currentSize = 0;
-    }
-    current.push(entry);
-    currentSize += entrySize;
-  });
-
-  if (current.length > 0) {
+  const pushBatch = () => {
+    if (currentBatch.length === 0) return;
     chunks.push({
       id: `chunk-${chunks.length}`,
-      content: current.map(e => e.raw).join('\n'),
-      entries: [...current],
-      tokenCount: currentSize
+      content: currentBatch.map(e => e.raw).join('\n'),
+      entries: [...currentBatch],
+      tokenCount: currentBatchTokens
     });
-  }
+    currentBatch = [];
+    currentBatchTokens = 0;
+  };
 
+  entries.forEach(entry => {
+    const entryTokens = Math.ceil(entry.raw.length / 4);
+
+    // Case 1: Entry itself is larger than chunk limit (likely massive stack trace)
+    if (entryTokens > maxTokens) {
+      pushBatch(); // Flush existing batch first
+      
+      const lines = entry.raw.split('\n');
+      const headerLine = lines[0]; // Retain the first line for context repetition
+      const headerTokens = Math.ceil(headerLine.length / 4);
+      
+      let subChunkLines: string[] = [headerLine];
+      let subChunkTokens = headerTokens;
+
+      for (let j = 1; j < lines.length; j++) {
+        const line = lines[j];
+        const lineTokens = Math.ceil(line.length / 4);
+
+        if (subChunkTokens + lineTokens > maxTokens) {
+          // Push current sub-chunk
+          chunks.push({
+            id: `chunk-${chunks.length}`,
+            content: subChunkLines.join('\n'),
+            entries: [entry], // Associate with same entry
+            tokenCount: subChunkTokens
+          });
+          // Start next sub-chunk by repeating the header context
+          subChunkLines = [headerLine, `[Continuation from Part ${chunks.length}] ${line}`];
+          subChunkTokens = headerTokens + Math.ceil(subChunkLines[1].length / 4);
+        } else {
+          subChunkLines.push(line);
+          subChunkTokens += lineTokens;
+        }
+      }
+      
+      // Final segment of the split entry
+      if (subChunkLines.length > 1) {
+        chunks.push({
+          id: `chunk-${chunks.length}`,
+          content: subChunkLines.join('\n'),
+          entries: [entry],
+          tokenCount: subChunkTokens
+        });
+      }
+      return;
+    }
+
+    // Case 2: Adding entry would exceed current batch limit
+    if (currentBatchTokens + entryTokens > maxTokens) {
+      pushBatch();
+    }
+    
+    currentBatch.push(entry);
+    currentBatchTokens += entryTokens;
+  });
+
+  pushBatch(); // Final flush
   return chunks;
 }
