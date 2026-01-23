@@ -1,22 +1,24 @@
 
 import React, { useRef, memo, useCallback, useState, useEffect } from 'react';
-import { ChatMessage, ModelOption, CodeFile, ProcessingStats } from '../types';
-import { Bot, User, Loader2, Link as LinkIcon, Sparkles, Zap, ChevronDown, ArrowUp, Command, ExternalLink, Globe, Paperclip, Mic } from 'lucide-react';
+import { ChatMessage, ModelOption, CodeFile, ProcessingStats, LogChunk } from '../types';
+import { Bot, User, Loader2, Link as LinkIcon, Sparkles, Zap, ChevronDown, ArrowUp, Command, ExternalLink, Globe, Paperclip, Mic, ShieldCheck, ListChecks } from 'lucide-react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { PromptSuggestions } from './PromptSuggestions';
 import { AVAILABLE_MODELS } from '../store/useLogStore';
 import { CodeFlowTrace } from './CodeFlowTrace';
 import { DebugInsightsPanel } from './DebugInsightsPanel';
 import { AdvancedAnalysisPanel } from './AdvancedAnalysisPanel';
+import { StructuredAnalysisRenderer } from './StructuredAnalysisRenderer';
 
 interface MessageItemProps {
   msg: ChatMessage;
   sourceFiles: CodeFile[];
   stats: ProcessingStats | null;
   messages: ChatMessage[];
+  allChunks: LogChunk[];
 }
 
-const MessageItem = memo(({ msg, sourceFiles, stats, messages }: MessageItemProps) => {
+const MessageItem = memo(({ msg, sourceFiles, stats, messages, allChunks }: MessageItemProps) => {
   const isUser = msg.role === 'user';
   
   return (
@@ -54,10 +56,50 @@ const MessageItem = memo(({ msg, sourceFiles, stats, messages }: MessageItemProp
                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" />
                 </div>
               </div>
+            ) : msg.structuredReport ? (
+              <div className="mb-4">
+                 <StructuredAnalysisRenderer report={msg.structuredReport} allChunks={allChunks} />
+              </div>
             ) : (
               <div className="whitespace-pre-wrap break-words">{msg.content}</div>
             )}
           </div>
+
+          {/* Intelligence v2.0: Fix Validation Panel */}
+          {!isUser && msg.fixValidation && (
+            <div className="bg-emerald-600/5 border border-emerald-500/20 rounded-[2rem] p-6 space-y-4 shadow-xl animate-in zoom-in-95 duration-500">
+               <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                     <ShieldCheck className="text-emerald-400" size={16} />
+                     <h5 className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">Remediation Validation</h5>
+                  </div>
+                  <div className="text-right">
+                     <p className="text-[8px] font-black text-slate-600 uppercase">System Confidence</p>
+                     <p className="text-sm font-black text-emerald-400">{(msg.fixValidation.confidence * 100).toFixed(0)}%</p>
+                  </div>
+               </div>
+               <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-800">
+                  <p className="text-xs text-slate-300 leading-relaxed italic">
+                    {msg.fixValidation.impactSimulation}
+                  </p>
+               </div>
+               {msg.fixValidation.similarResolvedIssues.length > 0 && (
+                 <div className="pt-2">
+                    <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-2">
+                       <ListChecks size={12} /> Related Knowledge Node
+                    </p>
+                    <div className="space-y-1.5">
+                      {msg.fixValidation.similarResolvedIssues.map((issue, i) => (
+                        <div key={i} className="text-[10px] font-bold text-slate-400 flex items-center gap-2">
+                           <div className="w-1 h-1 rounded-full bg-blue-500" />
+                           {issue}
+                        </div>
+                      ))}
+                    </div>
+                 </div>
+               )}
+            </div>
+          )}
 
           {/* Contextual Logic Panels (Analysis, Trace, Debug) */}
           {!isUser && !msg.isLoading && (
@@ -126,6 +168,7 @@ interface ChatWindowProps {
   suggestions: string[];
   sourceFiles: CodeFile[];
   stats: ProcessingStats | null;
+  allChunks: LogChunk[];
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = memo(({ 
@@ -137,7 +180,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
   onOpenSettings,
   suggestions,
   sourceFiles,
-  stats
+  stats,
+  allChunks
 }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -214,7 +258,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
         <div className="flex items-center gap-4">
            <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-slate-800/40 rounded-full border border-slate-700/40">
              <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Diagnostic v4.2</span>
+             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Multi-Node v6.0</span>
            </div>
         </div>
       </header>
@@ -228,8 +272,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
                 <Sparkles className="w-8 h-8 text-white" />
               </div>
               <div className="text-center space-y-2">
-                <h2 className="text-2xl font-bold text-white tracking-tight">How can I help with your logs today?</h2>
-                <p className="text-slate-500 text-sm font-medium">CloudLog AI is ready to audit your forensic streams.</p>
+                <h2 className="text-2xl font-bold text-white tracking-tight">Multi-Node Analysis Activated</h2>
+                <p className="text-slate-500 text-sm font-medium">Auditing cross-log correlations and logic chains.</p>
               </div>
             </div>
             
@@ -252,6 +296,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
                 sourceFiles={sourceFiles} 
                 stats={stats} 
                 messages={messages} 
+                allChunks={allChunks}
               />
             )}
             style={{ height: '100%' }}
@@ -260,16 +305,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
         )}
       </div>
 
-      {/* Bottom Input Area - Exact ChatGPT/Gemini Refinement */}
+      {/* Bottom Input Area */}
       <div className="w-full shrink-0 pt-2 pb-6 px-4 sm:px-6 relative">
-        {/* Subtle gradient to hide scrolling text */}
         <div className="absolute inset-x-0 bottom-full h-24 bg-gradient-to-t from-[#0d0f14] to-transparent pointer-events-none" />
 
         <div className="max-w-3xl mx-auto relative group">
           <div className={`relative flex flex-col bg-[#1e2029] border border-slate-700/50 rounded-2xl transition-all duration-300 shadow-2xl focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-500/20
             ${isProcessing ? 'opacity-80' : ''}
           `}>
-            {/* Input Row */}
             <div className="flex flex-col px-4 pt-3 pb-2">
               <textarea
                 ref={inputRef}
@@ -289,7 +332,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
               <div className="flex items-center justify-between mt-2 mb-1">
                 <div className="flex items-center gap-2">
                    <div className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">System Ready</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Temporal Hub Ready</span>
                    </div>
                    <button className="p-2 text-slate-500 hover:text-slate-200 transition-colors">
                      <Paperclip size={18} />
@@ -315,12 +358,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
                 </button>
               </div>
             </div>
-          </div>
-          
-          <div className="mt-4 flex flex-col items-center gap-1">
-            <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest text-center select-none">
-              CloudLog AI can cross-reference local source files and web grounding for complex remediation.
-            </p>
           </div>
         </div>
       </div>

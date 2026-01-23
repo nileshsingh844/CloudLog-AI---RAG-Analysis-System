@@ -2,7 +2,7 @@
 import React, { memo } from 'react';
 import { ProcessingStats, Severity } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
-import { ShieldAlert, AlertCircle, Info, Activity, FileJson, Layers, Tag, Database, Hash } from 'lucide-react';
+import { ShieldAlert, AlertCircle, Info, Activity, FileJson, Layers, Tag, Database, Hash, Sparkles } from 'lucide-react';
 
 interface StatsPanelProps {
   stats: ProcessingStats | null;
@@ -61,8 +61,9 @@ export const StatsPanel: React.FC<StatsPanelProps> = memo(({ stats }) => {
                 Severity Spectrum
               </h3>
             </div>
-            <div className="px-3 py-1 bg-slate-800/80 rounded-full border border-slate-700/50">
-               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Inference Distribution</span>
+            <div className="px-3 py-1 bg-emerald-500/10 rounded-full border border-emerald-500/20 flex items-center gap-1.5">
+               <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
+               <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Deduplicated Stream</span>
             </div>
           </div>
           
@@ -118,16 +119,16 @@ export const StatsPanel: React.FC<StatsPanelProps> = memo(({ stats }) => {
           />
           <StatCard 
             icon={<AlertCircle size={18} className="text-amber-400" />} 
-            label="Soft Warnings" 
-            value={stats.severities[Severity.WARN]} 
-            sub="Anomalous Signal"
+            label="Unique Signals" 
+            value={stats.uniqueEntries} 
+            sub={`Collapsed from ${stats.totalEntries}`}
             trendColor="text-amber-400"
           />
           <StatCard 
             icon={<Hash size={18} className="text-blue-400" />} 
-            label="Total Signal" 
-            value={stats.totalEntries.toLocaleString()} 
-            sub={`${stats.chunkCount} Neural Segments`}
+            label="Logic Nodes" 
+            value={stats.uniqueChunks} 
+            sub={`Unique RAG segments`}
             trendColor="text-blue-400"
             className="xs:col-span-2 lg:col-span-1"
           />

@@ -1,8 +1,8 @@
 
 import React, { memo } from 'react';
-import { ProcessingStats } from '../types';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
-import { BarChart3, TrendingUp, AlertTriangle } from 'lucide-react';
+import { ProcessingStats, Severity } from '../types';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, ReferenceLine } from 'recharts';
+import { BarChart3, TrendingUp, AlertTriangle, ArrowRightCircle } from 'lucide-react';
 
 interface LogDistributionChartProps {
   stats: ProcessingStats | null;
@@ -22,9 +22,9 @@ export const LogDistributionChart: React.FC<LogDistributionChartProps> = memo(({
         <div>
           <h3 className="text-xs font-black text-white uppercase tracking-[0.2em] flex items-center gap-3">
             <BarChart3 className="w-4 h-4 text-blue-400" />
-            Temporal Signal Density
+            Temporal Signal Hub
           </h3>
-          <p className="text-[10px] text-slate-500 font-bold mt-1 uppercase tracking-widest italic">Temporal Distribution Over Sampling Window</p>
+          <p className="text-[10px] text-slate-500 font-bold mt-1 uppercase tracking-widest italic">Causality & Signal Density Over Sampling Window</p>
         </div>
         
         <div className="flex items-center gap-3">
@@ -96,22 +96,48 @@ export const LogDistributionChart: React.FC<LogDistributionChartProps> = memo(({
         </ResponsiveContainer>
       </div>
 
+      {stats.temporalChains && stats.temporalChains.length > 0 && (
+        <div className="mt-8 pt-6 border-t border-slate-800/60">
+           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+             <ArrowRightCircle size={14} className="text-blue-500" />
+             Temporal Causality Chain
+           </h4>
+           <div className="flex items-center gap-2 overflow-x-auto pb-4 scrollbar-hide">
+              {stats.temporalChains[0].events.map((ev, i) => (
+                <React.Fragment key={ev.id}>
+                  <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl min-w-[140px] shrink-0">
+                    <p className="text-[8px] font-black text-slate-500 uppercase">{ev.timestamp.toLocaleTimeString()}</p>
+                    <p className="text-[10px] font-bold text-slate-200 mt-1 line-clamp-2 leading-snug">{ev.message}</p>
+                    <div className="mt-2 flex items-center justify-between">
+                       <span className={`text-[8px] font-black px-1 rounded ${ev.severity === Severity.FATAL ? 'bg-red-950 text-red-400' : 'bg-blue-950 text-blue-400'}`}>{ev.severity}</span>
+                       <span className="text-[8px] font-bold text-slate-600 truncate max-w-[60px]">{ev.sourceFile}</span>
+                    </div>
+                  </div>
+                  {i < stats.temporalChains[0].events.length - 1 && (
+                    <TrendingUp size={14} className="text-slate-700 shrink-0" />
+                  )}
+                </React.Fragment>
+              ))}
+           </div>
+        </div>
+      )}
+
       <div className="mt-6 flex items-center justify-between pt-4 border-t border-slate-800/60">
         <div className="flex items-center gap-6">
           <div className="flex flex-col">
-            <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Peak Frequency</span>
-            <span className="text-sm font-black text-slate-200 italic">{Math.max(...stats.timeBuckets.map(b => b.count))} <span className="text-[10px] text-slate-500 uppercase not-italic font-bold">Ev/Sec</span></span>
+            <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Cross-Log Files</span>
+            <span className="text-sm font-black text-slate-200 italic">{stats.processedFiles.length} <span className="text-[10px] text-slate-500 uppercase not-italic font-bold">Involved</span></span>
           </div>
           <div className="h-6 w-px bg-slate-800" />
           <div className="flex flex-col">
-            <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Temporal Spread</span>
-            <span className="text-sm font-black text-slate-200 italic">{stats.timeBuckets.length} <span className="text-[10px] text-slate-500 uppercase not-italic font-bold">Logical Slots</span></span>
+            <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Patterns Overlap</span>
+            <span className="text-sm font-black text-slate-200 italic">{stats.crossLogPatterns} <span className="text-[10px] text-slate-500 uppercase not-italic font-bold">Matches</span></span>
           </div>
         </div>
         
         <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/5 rounded-2xl border border-emerald-500/10 shadow-lg">
            <TrendingUp size={12} className="text-emerald-500" />
-           <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Stream Continuity Nominal</span>
+           <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Temporal Intelligence Active</span>
         </div>
       </div>
     </div>

@@ -1,12 +1,13 @@
 
 import React, { useRef, useState } from 'react';
-import { Upload, CheckCircle, Database, Shield, Zap, FileText, Loader2, Cpu } from 'lucide-react';
+import { Upload, CheckCircle, Database, Shield, Zap, FileText, Loader2, Cpu, Files } from 'lucide-react';
 
 interface FileUploadProps {
-  onFileSelect: (file: File) => void;
+  onFileSelect: (files: File[]) => void;
   isProcessing: boolean;
   ingestionProgress: number;
   fileName?: string;
+  processedFiles?: string[];
 }
 
 const SUPPORTED_EXTENSIONS = [
@@ -18,13 +19,13 @@ const SUPPORTED_EXTENSIONS = [
   '.gz', '.bz2', '.xz', '.zst', '.zip', '.tar'
 ].join(',');
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing, ingestionProgress, fileName }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing, ingestionProgress, fileName, processedFiles }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) onFileSelect(file);
+    const files = e.target.files;
+    if (files) onFileSelect(Array.from(files));
   };
 
   const onDragOver = (e: React.DragEvent) => {
@@ -37,8 +38,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) onFileSelect(file);
+    const files = e.dataTransfer.files;
+    if (files) onFileSelect(Array.from(files));
   };
 
   return (
@@ -57,6 +58,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
         onChange={handleFileChange}
         disabled={isProcessing}
         accept={SUPPORTED_EXTENSIONS}
+        multiple
         ref={fileInputRef}
       />
       
@@ -73,8 +75,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
           <div className="w-full space-y-4">
             <div className="flex justify-between items-end">
               <div>
-                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-1">Indexing RAG Node</p>
-                <p className="text-xs text-slate-500 font-bold italic">Analyzing logical patterns...</p>
+                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-1">Indexing RAG Multi-Node</p>
+                <p className="text-xs text-slate-500 font-bold italic">Cross-correlating file patterns...</p>
               </div>
               <span className="text-2xl font-black text-blue-100 italic tracking-tighter">{ingestionProgress}%</span>
             </div>
@@ -85,25 +87,25 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
                ></div>
             </div>
           </div>
-          <div className="flex items-center gap-2 px-5 py-2.5 bg-blue-500/10 border border-blue-500/20 rounded-2xl shadow-xl">
-             <div className="w-2 h-2 bg-blue-500 rounded-full animate-ping" />
-             <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Optimized Contextual Processing</p>
-          </div>
         </div>
       ) : fileName ? (
         <div className="flex flex-col items-center space-y-6 animate-in zoom-in duration-700">
           <div className="relative">
              <div className="absolute inset-0 bg-emerald-500/20 blur-3xl rounded-full"></div>
              <div className="relative bg-emerald-500/10 p-7 rounded-[2rem] border border-emerald-500/30 shadow-2xl shadow-emerald-500/10">
-                <CheckCircle className="w-12 h-12 text-emerald-400" />
+                <Files className="w-12 h-12 text-emerald-400" />
              </div>
           </div>
           <div className="text-center px-6">
-            <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-2">Diagnostic Ready</h4>
+            <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-2">Cross-Log Hub Ready</h4>
             <p className="text-slate-100 font-black text-2xl tracking-tight truncate max-w-[320px] italic uppercase">{fileName}</p>
-            <div className="flex items-center justify-center gap-3 mt-4">
-               <div className="px-3 py-1 bg-slate-900 border border-slate-800 rounded-lg text-[9px] font-black text-slate-500 uppercase tracking-widest">Persistence Cache Active</div>
-            </div>
+            {processedFiles && processedFiles.length > 1 && (
+              <div className="mt-2 flex flex-wrap justify-center gap-2">
+                {processedFiles.map((f, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded text-[8px] font-bold text-slate-400">{f}</span>
+                ))}
+              </div>
+            )}
           </div>
           <button 
             onClick={(e) => {
@@ -112,7 +114,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
             }}
             className="px-8 py-3 bg-slate-800/60 hover:bg-slate-700 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border border-slate-700/50 mt-4 z-20 shadow-xl"
           >
-            Switch Log Stream
+            Add More Logs
           </button>
         </div>
       ) : (
@@ -120,31 +122,21 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessi
           <div className="relative group-hover:scale-110 transition-transform duration-700">
             <div className="absolute inset-0 bg-blue-600/20 blur-3xl rounded-full group-hover:bg-blue-600/40 transition-colors"></div>
             <div className="relative bg-slate-900 border border-slate-800 p-8 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-              <Upload className="w-12 h-12 text-blue-500" />
+              <Files className="w-12 h-12 text-blue-500" />
             </div>
             <div className="absolute -bottom-3 -right-3 bg-blue-600 p-2.5 rounded-2xl border-4 border-slate-900 shadow-2xl">
-              <FileText className="w-5 h-5 text-white" />
+              <Upload className="w-5 h-5 text-white" />
             </div>
           </div>
           <div className="text-center px-10 space-y-3">
-            <h4 className="text-slate-100 font-black text-2xl italic uppercase tracking-tighter">Enterprise Feed</h4>
-            <p className="text-slate-500 text-sm font-medium leading-relaxed max-w-sm mx-auto">Seamlessly ingest massive diagnostic streams into our neural RAG engine with <span className="text-blue-500 font-bold">zero latency</span> overhead.</p>
-          </div>
-          <div className="flex flex-wrap justify-center gap-4">
-            <Pill icon={<Shield size={12} className="text-blue-500" />} label="800+ Dialects" />
-            <Pill icon={<Database size={12} className="text-blue-500" />} label="S3 / Cloud Logs" />
+            <h4 className="text-slate-100 font-black text-2xl italic uppercase tracking-tighter">Diagnostic Multi-Feed</h4>
+            <p className="text-slate-500 text-sm font-medium leading-relaxed max-w-sm mx-auto">Upload multiple log files to detect <span className="text-blue-500 font-bold">cross-node correlations</span> and temporal causality.</p>
           </div>
           <div className="mt-4 text-[11px] text-slate-600 font-black uppercase tracking-[0.3em] animate-pulse">
-            Drop file or click to sync
+            Select multiple files to correlate
           </div>
         </>
       )}
     </div>
   );
 };
-
-const Pill = ({ icon, label }: any) => (
-  <div className="px-4 py-1.5 bg-slate-800/50 rounded-xl text-[10px] text-slate-400 uppercase tracking-widest font-black border border-slate-700/50 flex items-center gap-2.5 shadow-lg">
-    {icon} {label}
-  </div>
-);
