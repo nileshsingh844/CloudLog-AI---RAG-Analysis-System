@@ -187,6 +187,42 @@ export function buildSearchIndex(chunks: LogChunk[]): SearchIndex {
   return { invertedIndex, termWeights };
 }
 
+/**
+ * Serializes SearchIndex for local storage
+ */
+export function serializeIndex(index: SearchIndex | null): any {
+  if (!index) return null;
+  const invertedIndexObj: Record<string, string[]> = {};
+  index.invertedIndex.forEach((val, key) => {
+    invertedIndexObj[key] = Array.from(val);
+  });
+  
+  const termWeightsObj: Record<string, number> = {};
+  index.termWeights.forEach((val, key) => {
+    termWeightsObj[key] = val;
+  });
+
+  return { invertedIndex: invertedIndexObj, termWeights: termWeightsObj };
+}
+
+/**
+ * Deserializes SearchIndex from local storage
+ */
+export function deserializeIndex(serialized: any): SearchIndex | null {
+  if (!serialized) return null;
+  const invertedIndex = new Map<string, Set<string>>();
+  Object.entries(serialized.invertedIndex || {}).forEach(([key, val]) => {
+    invertedIndex.set(key, new Set(val as string[]));
+  });
+
+  const termWeights = new Map<string, number>();
+  Object.entries(serialized.termWeights || {}).forEach(([key, val]) => {
+    termWeights.set(key, val as number);
+  });
+
+  return { invertedIndex, termWeights };
+}
+
 export function parseLogFile(content: string, filename: string, offset: number = 0): { entries: LogEntry[], fileInfo: FileInfo } {
   const { format, category } = detectFormat(filename, content);
   const rawLines = content.split(/\r?\n/);

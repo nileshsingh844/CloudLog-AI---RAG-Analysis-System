@@ -1,18 +1,38 @@
 
 import React, { useState } from 'react';
-import { DebugSolution, CodeFix } from '../types';
-import { ShieldCheck, Zap, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileCode, Lightbulb, Split, ArrowRight } from 'lucide-react';
+import { DebugSolution, CodeFix, ChatMessage, ProcessingStats, CodeFile, UnitTest } from '../types';
+import { ShieldCheck, Zap, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileCode, Lightbulb, Split, ArrowRight, FileOutput, ListOrdered, TestTube, ShieldCheck as ShieldIcon, Copy, Check } from 'lucide-react';
+import { ExportCenter } from './ExportCenter';
 
 interface DebugInsightsPanelProps {
   solutions: DebugSolution[];
+  stats: ProcessingStats | null;
+  messages: ChatMessage[];
+  sourceFiles: CodeFile[];
 }
 
-export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solutions }) => {
+export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solutions, stats, messages, sourceFiles }) => {
   const [activeSolutionIdx, setActiveSolutionIdx] = useState(0);
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [copiedTestIdx, setCopiedTestIdx] = useState<number | null>(null);
 
   if (!solutions || solutions.length === 0) return null;
 
   const activeSolution = solutions[activeSolutionIdx];
+
+  const handleCopyTest = (code: string, idx: number) => {
+    navigator.clipboard.writeText(code);
+    setCopiedTestIdx(idx);
+    setTimeout(() => setCopiedTestIdx(null), 2000);
+  };
+
+  const exportData = {
+    stats,
+    messages,
+    solutions,
+    sourceFiles,
+    timestamp: new Date().toLocaleString()
+  };
 
   return (
     <div className="space-y-6 my-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -27,25 +47,39 @@ export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solution
           </div>
         </div>
         
-        {/* Solution Toggle */}
-        <div className="flex gap-2">
-          {solutions.map((_, idx) => (
-            <button
-              key={idx}
-              onClick={() => setActiveSolutionIdx(idx)}
-              className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest transition-all
-                ${activeSolutionIdx === idx 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 border border-blue-400/30' 
-                  : 'bg-slate-900 border border-slate-800 text-slate-500 hover:text-slate-300'}`}
-            >
-              Path {idx + 1}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setIsExportOpen(!isExportOpen)}
+            className={`p-2 rounded-xl border transition-all ${isExportOpen ? 'bg-blue-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'}`}
+            title="Export Options"
+          >
+            <FileOutput size={16} />
+          </button>
+          
+          <div className="flex gap-2">
+            {solutions.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={() => setActiveSolutionIdx(idx)}
+                className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest transition-all
+                  ${activeSolutionIdx === idx 
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 border border-blue-400/30' 
+                    : 'bg-slate-900 border border-slate-800 text-slate-500 hover:text-slate-300'}`}
+              >
+                Path {idx + 1}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
+      {isExportOpen && (
+        <div className="animate-in slide-in-from-top-2 duration-300">
+          <ExportCenter data={exportData} activeSolution={activeSolution} />
+        </div>
+      )}
+
       <div className="bg-slate-900/40 border border-slate-800 rounded-[2.5rem] overflow-hidden shadow-2xl">
-        {/* Solution Strategy Header */}
         <div className="px-6 py-5 bg-slate-900/60 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -70,7 +104,6 @@ export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solution
         </div>
 
         <div className="p-6 space-y-8">
-          {/* Root Cause Analysis */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
               <AlertCircle size={14} className="text-red-400" /> Root Cause Breakdown
@@ -80,7 +113,24 @@ export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solution
             </div>
           </div>
 
-          {/* Fix Suggestions with Diff View */}
+          {/* Reproduction Steps */}
+          {activeSolution.reproSteps && activeSolution.reproSteps.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                <ListOrdered size={14} className="text-amber-400" /> Reproduction Protocol
+              </div>
+              <div className="space-y-2">
+                {activeSolution.reproSteps.map((step, i) => (
+                  <div key={i} className="flex items-start gap-3 p-3 bg-slate-950/40 rounded-xl border border-slate-800/40">
+                    <span className="text-[10px] font-black text-blue-500 w-4">{i + 1}.</span>
+                    <p className="text-xs text-slate-300 font-medium">{step}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Fix Suggestions */}
           <div className="space-y-6">
             <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
               <Split size={14} className="text-blue-400" /> Proposed Code Diff
@@ -97,7 +147,6 @@ export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solution
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Original Code */}
                   <div className="space-y-2">
                     <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-2">Current Implementation</p>
                     <div className="bg-[#0c0f17] rounded-2xl p-4 border border-slate-800 font-mono text-[11px] leading-relaxed overflow-hidden shadow-inner">
@@ -110,7 +159,6 @@ export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solution
                     </div>
                   </div>
 
-                  {/* Suggested Code */}
                   <div className="space-y-2">
                     <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest px-2">Proposed Revision</p>
                     <div className="bg-[#0c0f17] rounded-2xl p-4 border border-slate-800 font-mono text-[11px] leading-relaxed overflow-hidden shadow-inner">
@@ -128,24 +176,55 @@ export const DebugInsightsPanel: React.FC<DebugInsightsPanelProps> = ({ solution
                   <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">
                     <Lightbulb size={12} /> Rationale
                   </p>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    {fix.explanation}
-                  </p>
-                  {fix.bestPractice && (
-                    <div className="mt-3 pt-3 border-t border-blue-500/10 flex items-start gap-3">
-                      <ShieldCheck size={14} className="text-emerald-400 shrink-0 mt-0.5" />
-                      <div>
-                        <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest block mb-0.5">Industry Standard Alignment</span>
-                        <p className="text-[11px] text-slate-500 font-medium italic">"{fix.bestPractice}"</p>
-                      </div>
-                    </div>
-                  )}
+                  <p className="text-xs text-slate-400 leading-relaxed">{fix.explanation}</p>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Best Practices Check */}
+          {/* Unit Test Generation */}
+          {activeSolution.unitTests && activeSolution.unitTests.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                <TestTube size={14} className="text-emerald-400" /> Generated Reproducer Tests
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                {activeSolution.unitTests.map((test, i) => (
+                  <div key={i} className="bg-slate-950/60 rounded-2xl border border-slate-800 p-5 space-y-3 relative group">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <FileCode size={14} className="text-emerald-500" />
+                        <span className="text-xs font-bold text-slate-200">{test.title}</span>
+                      </div>
+                      <button 
+                        onClick={() => handleCopyTest(test.code, i)}
+                        className="p-2 hover:bg-slate-800 rounded-lg text-slate-500 hover:text-white transition-all"
+                      >
+                        {copiedTestIdx === i ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                    <div className="bg-[#050810] rounded-xl p-4 border border-slate-800/60 font-mono text-[11px] text-emerald-300/80 leading-relaxed overflow-x-auto whitespace-pre">
+                      {test.code}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Regression Prevention */}
+          {activeSolution.preventionStrategy && (
+            <div className="pt-6 border-t border-slate-800/60 space-y-3">
+              <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                <ShieldIcon size={14} className="text-emerald-400" /> Regression Prevention Strategy
+              </div>
+              <div className="p-5 bg-emerald-900/10 border border-emerald-500/20 rounded-2xl text-[13px] text-slate-300 leading-relaxed font-medium italic">
+                "{activeSolution.preventionStrategy}"
+              </div>
+            </div>
+          )}
+
+          {/* Best Practices */}
           <div className="pt-4 border-t border-slate-800/60">
              <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">
               <ShieldCheck size={14} className="text-emerald-400" /> Best Practice Guardrails

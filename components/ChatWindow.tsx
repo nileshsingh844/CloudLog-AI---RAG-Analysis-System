@@ -1,20 +1,22 @@
 
 import React, { useRef, memo, useCallback, useState, useEffect } from 'react';
-import { ChatMessage, ModelOption, CodeFile } from '../types';
-// Added Globe to imports from lucide-react
+import { ChatMessage, ModelOption, CodeFile, ProcessingStats } from '../types';
 import { Bot, User, Loader2, Link as LinkIcon, Sparkles, Zap, Cpu, ChevronDown, ArrowUp, Command, ExternalLink, Globe } from 'lucide-react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { PromptSuggestions } from './PromptSuggestions';
 import { AVAILABLE_MODELS } from '../store/useLogStore';
 import { CodeFlowTrace } from './CodeFlowTrace';
 import { DebugInsightsPanel } from './DebugInsightsPanel';
+import { AdvancedAnalysisPanel } from './AdvancedAnalysisPanel';
 
 interface MessageItemProps {
   msg: ChatMessage;
   sourceFiles: CodeFile[];
+  stats: ProcessingStats | null;
+  messages: ChatMessage[];
 }
 
-const MessageItem = memo(({ msg, sourceFiles }: MessageItemProps) => {
+const MessageItem = memo(({ msg, sourceFiles, stats, messages }: MessageItemProps) => {
   const isUser = msg.role === 'user';
   return (
     <div className={`flex w-full gap-4 px-4 sm:px-6 py-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} animate-in slide-in-from-bottom-2 duration-300`}>
@@ -46,6 +48,13 @@ const MessageItem = memo(({ msg, sourceFiles }: MessageItemProps) => {
           )}
         </div>
 
+        {/* Advanced Forensic Analysis rendering */}
+        {!isUser && msg.advancedAnalysis && (
+          <div className="w-full mt-2">
+            <AdvancedAnalysisPanel data={msg.advancedAnalysis} />
+          </div>
+        )}
+
         {/* Structured Code Trace rendering */}
         {!isUser && msg.analysisSteps && msg.analysisSteps.length > 0 && (
           <div className="w-full mt-2 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/30">
@@ -56,7 +65,7 @@ const MessageItem = memo(({ msg, sourceFiles }: MessageItemProps) => {
         {/* Debugging Insights rendering */}
         {!isUser && msg.debugSolutions && msg.debugSolutions.length > 0 && (
           <div className="w-full mt-2">
-            <DebugInsightsPanel solutions={msg.debugSolutions} />
+            <DebugInsightsPanel solutions={msg.debugSolutions} stats={stats} messages={messages} sourceFiles={sourceFiles} />
           </div>
         )}
 
@@ -111,6 +120,7 @@ interface ChatWindowProps {
   onOpenSettings: () => void;
   suggestions: string[];
   sourceFiles: CodeFile[];
+  stats: ProcessingStats | null;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = memo(({ 
@@ -121,7 +131,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
   onSelectModel,
   onOpenSettings,
   suggestions,
-  sourceFiles
+  sourceFiles,
+  stats
 }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -160,10 +171,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
 
   return (
     <div className="flex flex-col h-full bg-slate-900/20 border border-slate-800 rounded-[2.5rem] overflow-hidden shadow-2xl relative">
-      {/* Header: Sticky to container top, ensured no overlap */}
+      {/* Header */}
       <div className="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between bg-slate-950/60 backdrop-blur-xl z-[45] shrink-0">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-600/10 rounded-xl">
+          <div className="p-2 bg-blue-600/10 rounded-xl border border-blue-500/20">
             <Sparkles className="w-5 h-5 text-blue-400" />
           </div>
           <div>
@@ -213,7 +224,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
         </div>
       </div>
 
-      {/* Main Body: Virtuoso handles scrolling */}
+      {/* Main Body */}
       <div className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
         {messages.length === 0 ? (
           <div className="h-full w-full flex flex-col items-center justify-center p-8 animate-in fade-in duration-700">
@@ -240,14 +251,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
             ref={virtuosoRef}
             data={messages}
             followOutput="auto"
-            itemContent={(index, msg) => <MessageItem msg={msg} sourceFiles={sourceFiles} />}
+            itemContent={(index, msg) => <MessageItem msg={msg} sourceFiles={sourceFiles} stats={stats} messages={messages} />}
             style={{ height: '100%' }}
             className="scrollbar-hide"
           />
         )}
       </div>
 
-      {/* Input Tray: Anchored at the bottom, responsive height */}
+      {/* Input Tray */}
       <div className="p-6 bg-slate-950/40 border-t border-slate-800/40 shrink-0 z-10">
         <div className={`relative flex flex-col bg-slate-900 border rounded-3xl px-6 pt-5 pb-4 transition-all duration-300 shadow-2xl
           ${isProcessing ? 'border-blue-500/20 opacity-80' : 'border-slate-800 focus-within:border-blue-600/40 focus-within:ring-4 focus-within:ring-blue-600/5'}

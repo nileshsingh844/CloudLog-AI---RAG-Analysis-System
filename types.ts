@@ -8,6 +8,63 @@ export enum Severity {
   UNKNOWN = 'UNKNOWN'
 }
 
+export interface LogPattern {
+  signature: string;
+  count: number;
+  example: string;
+  severity: Severity;
+  trend: 'increasing' | 'stable' | 'decreasing';
+}
+
+export interface ErrorCorrelation {
+  id: string;
+  sourceEvent: string;
+  triggeredEvent: string;
+  timeDeltaMs: number;
+  confidence: number;
+  causalLink: string;
+}
+
+export interface PerformanceBottleneck {
+  operation: string;
+  p95LatencyMs: number;
+  count: number;
+  impact: 'CRITICAL' | 'HIGH' | 'MODERATE';
+}
+
+export interface SecurityInsight {
+  type: string;
+  description: string;
+  severity: 'CRITICAL' | 'HIGH' | 'LOW';
+  remediation: string;
+}
+
+export interface EnvironmentProfile {
+  os?: string;
+  runtime?: string;
+  region?: string;
+  host?: string;
+  env?: string;
+  detectedAnomalies?: string[];
+}
+
+export interface DependencyAnomaly {
+  library: string;
+  currentVersion: string;
+  suspectedIssue: string;
+  remediation?: string;
+}
+
+export interface AdvancedAnalysis {
+  patterns: LogPattern[];
+  correlations: ErrorCorrelation[];
+  bottlenecks: PerformanceBottleneck[];
+  securityInsights: SecurityInsight[];
+  memoryInsights: string[];
+  environmentProfile?: EnvironmentProfile;
+  dependencyAnomalies?: DependencyAnomaly[];
+}
+
 export interface FileInfo {
   originalName: string;
   extension: string;
@@ -43,13 +100,23 @@ export interface CodeFix {
   bestPractice?: string;
 }
 
+export interface UnitTest {
+  title: string;
+  code: string;
+  language: string;
+  framework?: string;
+}
+
 export interface DebugSolution {
   id: string;
   strategy: string;
-  confidence: number;
+  confidence: number; // Confidence Scoring
   rootCause: string;
   fixes: CodeFix[];
   bestPractices: string[];
+  reproSteps?: string[]; // Reproduction steps
+  unitTests?: UnitTest[]; // Test Case Generation
+  preventionStrategy?: string; // Regression Prevention
 }
 
 export interface LogEntry {
@@ -147,12 +214,21 @@ export interface ChatMessage {
   codeSnippets?: SourceLocation[];
   analysisSteps?: CodeFlowStep[];
   debugSolutions?: DebugSolution[];
+  advancedAnalysis?: AdvancedAnalysis;
   isLoading?: boolean;
   modelId?: string;
   provider?: LLMProvider;
 }
 
 export type PipelineStep = 'ingestion' | 'analysis' | 'code-sync' | 'knowledge' | 'debug';
+
+export interface ExportData {
+  stats: ProcessingStats | null;
+  messages: ChatMessage[];
+  solutions: DebugSolution[];
+  sourceFiles: CodeFile[];
+  timestamp: string;
+}
 
 export interface TestCase {
   name: string;

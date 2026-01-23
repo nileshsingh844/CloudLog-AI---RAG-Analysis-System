@@ -1,6 +1,6 @@
 
 import React, { useRef, useState, useCallback } from 'react';
-import { Code, FileArchive, FolderOpen, Search, ShieldCheck, ChevronRight, Trash2, Github, GitBranch, AlertCircle, Library, Globe, FileCode, CheckCircle2, Loader2, Link } from 'lucide-react';
+import { Code, FileArchive, FolderOpen, Search, ShieldCheck, ChevronRight, Trash2, Github, GitBranch, AlertCircle, Library, Globe, FileCode, CheckCircle2, Loader2, Link, XCircle } from 'lucide-react';
 import { CodeFile } from '../types';
 
 interface CodeHubProps {
@@ -14,7 +14,8 @@ export const CodeHub: React.FC<CodeHubProps> = ({ inferredFiles, sourceFiles, on
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
   const [repoUrl, setRepoUrl] = useState('');
-  const [gitStatus, setGitStatus] = useState<'idle' | 'connected' | 'error'>('idle');
+  const [branch, setBranch] = useState('main');
+  const [gitStatus, setGitStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [fetchingFile, setFetchingFile] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<CodeFile | null>(null);
 
@@ -23,14 +24,34 @@ export const CodeHub: React.FC<CodeHubProps> = ({ inferredFiles, sourceFiles, on
     return libMarkers.some(m => path.toLowerCase().includes(m.toLowerCase()));
   };
 
-  const handleGitConnect = () => {
+  const handleGitConnect = async () => {
     if (!repoUrl) return;
-    // Basic validation for common git hosts to ensure we can attempt a raw fetch
-    const isGithub = repoUrl.includes('github.com');
-    const isGitlab = repoUrl.includes('gitlab.com');
+    setGitStatus('connecting');
+    
+    // Normalize URL
+    const normalized = repoUrl.trim().replace(/\/$/, '').replace(/\.git$/, '');
+    const isGithub = normalized.includes('github.com');
+    const isGitlab = normalized.includes('gitlab.com');
     
     if (isGithub || isGitlab) {
-      setGitStatus('connected');
+      // Test connectivity by trying to fetch a common file (README.md)
+      try {
+        let testUrl = '';
+        if (isGithub) {
+          const rawUrl = normalized.replace('github.com', 'raw.githubusercontent.com');
+          testUrl = `${rawUrl}/${branch}/README.md`;
+        } else {
+          testUrl = `${normalized}/-/raw/${branch}/README.md`;
+        }
+
+        const res = await fetch(testUrl, { method: 'HEAD' });
+        // Even if README doesn't exist (404), if it's not a CORS or 401 error, we consider it "connected" to the domain
+        if (res.status === 401 || res.status === 403) throw new Error("Private repo");
+        
+        setGitStatus('connected');
+      } catch (e) {
+        setGitStatus('error');
+      }
     } else {
       setGitStatus('error');
     }
@@ -41,41 +62,32 @@ export const CodeHub: React.FC<CodeHubProps> = ({ inferredFiles, sourceFiles, on
     
     setFetchingFile(path);
     try {
-      // Logic to convert standard repo URL to raw content URL
-      let rawUrl = repoUrl.trim().replace(/\/$/, '');
+      let normalized = repoUrl.trim().replace(/\/$/, '').replace(/\.git$/, '');
+      let rawUrl = '';
       
-      if (rawUrl.includes('github.com')) {
-        // github.com/user/repo -> raw.githubusercontent.com/user/repo/main/path
-        rawUrl = rawUrl.replace('github.com', 'raw.githubusercontent.com');
-        // Handle case where branch isn't in URL
-        if (!rawUrl.includes('/main/') && !rawUrl.includes('/master/')) {
-          rawUrl = `${rawUrl}/main/${path}`;
-        } else {
-          rawUrl = `${rawUrl}/${path}`;
-        }
-      } else if (rawUrl.includes('gitlab.com')) {
-        // gitlab.com/user/repo -> gitlab.com/user/repo/-/raw/main/path
-        if (!rawUrl.includes('/-/raw/')) {
-          rawUrl = `${rawUrl}/-/raw/main/${path}`;
-        } else {
-          rawUrl = `${rawUrl}/${path}`;
-        }
+      if (normalized.includes('github.com')) {
+        normalized = normalized.replace('github.com', 'raw.githubusercontent.com');
+        rawUrl = `${normalized}/${branch}/${path}`;
+      } else if (normalized.includes('gitlab.com')) {
+        rawUrl = `${normalized}/-/raw/${branch}/${path}`;
       }
 
       const response = await fetch(rawUrl);
-      if (!response.ok) throw new Error("File not found or private repository");
+      if (!response.ok) {
+        if (response.status === 404) throw new Error("File not found in repository");
+        throw new Error("Could not access repository (may be private)");
+      }
       
       const content = await response.text();
-      // Create a mock File object to pass to the existing onUpload handler
       const mockFile = new File([content], path, { type: 'text/plain' });
       onUpload([mockFile]);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Git fetch error:", e);
-      alert(`Automated fetch failed for: ${path}\n\nTechnical details: Ensure the repository is public and the path is relative to the root. Or manually upload the ZIP/Directory.`);
+      alert(`Diagnostic Fetch Failed: ${path}\n\nReason: ${e.message}\n\nTroubleshooting:\n1. Ensure repo is PUBLIC\n2. Verify branch '${branch}' exists\n3. Path must be relative to repo root`);
     } finally {
       setFetchingFile(null);
     }
-  }, [repoUrl, gitStatus, onUpload]);
+  }, [repoUrl, branch, gitStatus, onUpload]);
 
   // Preview Mode
   if (selectedPreview) {
@@ -151,8 +163,7 @@ export const CodeHub: React.FC<CodeHubProps> = ({ inferredFiles, sourceFiles, on
             ref={dirInputRef} 
             className="hidden" 
             multiple 
-            // @ts-ignore
-            webkitdirectory="true" 
+            {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)}
             onChange={(e) => e.target.files && onUpload(Array.from(e.target.files))} 
           />
         </button>
@@ -172,31 +183,51 @@ export const CodeHub: React.FC<CodeHubProps> = ({ inferredFiles, sourceFiles, on
             </div>
           )}
         </div>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <input 
-              type="text" 
-              placeholder="github.com/org/repo" 
-              value={repoUrl}
-              onChange={(e) => { setRepoUrl(e.target.value); setGitStatus('idle'); }}
-              className={`w-full bg-slate-900 border rounded-xl px-4 py-2 text-xs text-slate-300 placeholder:text-slate-700 focus:ring-2 focus:ring-blue-500/10 outline-none transition-all
-                ${gitStatus === 'connected' ? 'border-emerald-500/40' : 'border-slate-800'}
-                ${gitStatus === 'error' ? 'border-red-500/40' : ''}
-              `}
-            />
-          </div>
-          <button 
-            onClick={handleGitConnect}
-            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all
-              ${gitStatus === 'connected' 
-                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/40' 
-                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'}
+        <div className="space-y-2">
+          <input 
+            type="text" 
+            placeholder="github.com/user/repo" 
+            value={repoUrl}
+            onChange={(e) => { setRepoUrl(e.target.value); setGitStatus('idle'); }}
+            className={`w-full bg-slate-900 border rounded-xl px-4 py-2 text-xs text-slate-300 placeholder:text-slate-700 focus:ring-2 focus:ring-blue-500/10 outline-none transition-all
+              ${gitStatus === 'connected' ? 'border-emerald-500/40' : 'border-slate-800'}
+              ${gitStatus === 'error' ? 'border-red-500/40' : ''}
             `}
-          >
-            {gitStatus === 'connected' ? 'Connected' : 'Connect'}
-          </button>
+          />
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600">
+                <GitBranch size={10} />
+              </div>
+              <input 
+                type="text" 
+                placeholder="branch (main)" 
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-4 py-2 text-[10px] text-slate-400 placeholder:text-slate-700 outline-none focus:border-slate-600 transition-all"
+              />
+            </div>
+            <button 
+              onClick={handleGitConnect}
+              disabled={gitStatus === 'connecting'}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all min-w-[90px] flex items-center justify-center gap-2
+                ${gitStatus === 'connected' 
+                  ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/40' 
+                  : gitStatus === 'error'
+                  ? 'bg-red-900/20 text-red-400 border border-red-500/40'
+                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'}
+              `}
+            >
+              {gitStatus === 'connecting' ? <Loader2 size={12} className="animate-spin" /> : gitStatus === 'connected' ? 'Connected' : gitStatus === 'error' ? 'Retry' : 'Connect'}
+            </button>
+          </div>
         </div>
-        {gitStatus === 'error' && <p className="text-[9px] text-red-400 font-bold">Invalid repository URL. Use github.com or gitlab.com.</p>}
+        {gitStatus === 'error' && (
+          <div className="flex items-center gap-2 px-2 py-1 bg-red-500/5 rounded border border-red-500/20">
+            <XCircle size={10} className="text-red-400" />
+            <p className="text-[8px] text-red-400 font-bold uppercase">Public repo access required. Check URL/Branch.</p>
+          </div>
+        )}
       </div>
 
       {/* Inferred Diagnostic Files */}
@@ -237,18 +268,21 @@ export const CodeHub: React.FC<CodeHubProps> = ({ inferredFiles, sourceFiles, on
                       <button 
                         onClick={() => fetchFromGit(file)}
                         disabled={isFetching}
-                        className="text-[9px] font-black text-blue-400 uppercase tracking-widest hover:text-white flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 rounded-lg border border-blue-500/20"
+                        className="text-[9px] font-black text-blue-400 uppercase tracking-widest hover:text-white flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 rounded-lg border border-blue-500/20 transition-all"
                       >
                         {isFetching ? <Loader2 size={12} className="animate-spin" /> : <Link size={12} />}
-                        Fetch
+                        {isFetching ? '...' : 'Fetch'}
                       </button>
                     ) : (
-                      <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-blue-400 transition-colors"
-                      >
-                        Upload
-                      </button>
+                      <div className="flex items-center gap-2">
+                         {!isLib && gitStatus !== 'connected' && <span className="text-[8px] text-slate-600 font-bold italic uppercase mr-1">Offline</span>}
+                         <button 
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-[9px] font-black text-slate-600 uppercase tracking-widest hover:text-blue-400 transition-colors"
+                        >
+                          Upload
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -288,7 +322,7 @@ export const CodeHub: React.FC<CodeHubProps> = ({ inferredFiles, sourceFiles, on
       <div className="pt-4 border-t border-slate-800/60 flex items-start gap-3">
         <AlertCircle size={14} className="text-slate-600 mt-0.5 shrink-0" />
         <p className="text-[9px] text-slate-500 leading-relaxed italic">
-          Git integration attempts to resolve source code automatically for inferred file paths. Ensure the connected repo matches the project structure of the logs.
+          RAG-Logic Bridge: Connected files are used for semantic cross-referencing during deep debugging turns.
         </p>
       </div>
     </div>

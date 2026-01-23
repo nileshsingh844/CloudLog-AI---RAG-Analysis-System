@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
-import { LogChunk, ChatMessage, SearchIndex, ProcessingStats, CodeFile, SourceLocation, CodeFlowStep, DebugSolution, KnowledgeFile } from "../types";
+import { LogChunk, ChatMessage, SearchIndex, ProcessingStats, CodeFile, SourceLocation, CodeFlowStep, DebugSolution, KnowledgeFile, AdvancedAnalysis } from "../types";
 
 export class GeminiService {
   private async delay(ms: number) {
@@ -11,30 +11,28 @@ export class GeminiService {
     let currentTokens = 0;
     const finalContext: string[] = [];
 
-    // Add Knowledge Base Context (Runbooks/Internal Docs)
     if (knowledgeFiles.length > 0) {
-      finalContext.push("### KNOWLEDGE BASE / INTERNAL RUNBOOKS");
+      finalContext.push("### INTERNAL KNOWLEDGE BASE & RUNBOOKS");
       for (const kf of knowledgeFiles) {
         const estimated = (kf.content.length / 4);
-        if (currentTokens + estimated < maxContextTokens * 0.2) {
-          finalContext.push(`DOC: ${kf.name} (${kf.type})\n${kf.content}\n---`);
+        if (currentTokens + estimated < maxContextTokens * 0.20) {
+          finalContext.push(`DOCUMENT: ${kf.name} (Type: ${kf.type})\nCONTENT: ${kf.content}\n---`);
           currentTokens += estimated;
         }
       }
     }
 
-    // Add Log Segments
+    finalContext.push("\n### RELEVANT LOG SEGMENTS");
     for (const chunk of rankedChunks) {
       const estimated = (chunk.content.length / 4);
       if (currentTokens + estimated < maxContextTokens * 0.6) {
-        finalContext.push(`### LOG SEGMENT: ${chunk.id}\n${chunk.content}\n---`);
+        finalContext.push(`SEGMENT ID: ${chunk.id}\n${chunk.content}\n---`);
         currentTokens += estimated;
       } else {
         break;
       }
     }
 
-    // Add Code Context if log entries point to specific files
     const relevantLocations = new Map<string, Set<number>>();
     rankedChunks.forEach(chunk => {
       chunk.entries.forEach(entry => {
@@ -47,110 +45,34 @@ export class GeminiService {
       });
     });
 
-    if (relevantLocations.size > 0) {
-      finalContext.push("\n### RELATED SOURCE CODE SNIPPETS (CONTEXT WINDOWS)");
+    if (relevantLocations.size > 0 && sourceFiles.length > 0) {
+      finalContext.push("\n### SOURCE CODE CONTEXT (SEMANTIC MATCH)");
       for (const [filePath, lines] of relevantLocations.entries()) {
-        const file = sourceFiles.find(f => f.path.endsWith(filePath) || filePath.endsWith(f.path));
+        const file = sourceFiles.find(f => f.path.toLowerCase().endsWith(filePath.toLowerCase()) || filePath.toLowerCase().endsWith(f.path.toLowerCase()));
         if (file) {
           const fileLines = file.content.split('\n');
-          if (lines.size > 0) {
-            Array.from(lines).sort((a, b) => a - b).forEach(lineNum => {
-              const start = Math.max(0, lineNum - 30);
-              const end = Math.min(fileLines.length, lineNum + 30);
+          const sortedLines = Array.from(lines).sort((a, b) => a - b);
+          let lastEnd = -1;
+
+          sortedLines.forEach(lineNum => {
+            const start = Math.max(0, lineNum - 15);
+            const end = Math.min(fileLines.length, lineNum + 15);
+            
+            if (start > lastEnd) {
               const snippet = fileLines.slice(start, end).join('\n');
               const estimated = (snippet.length / 4);
               if (currentTokens + estimated < maxContextTokens) {
                 finalContext.push(`FILE: ${file.path} (Lines ${start + 1}-${end})\n\`\`\`${file.language}\n${snippet}\n\`\`\``);
                 currentTokens += estimated;
+                lastEnd = end;
               }
-            });
-          } else {
-            const estimated = (file.content.length / 4);
-            if (currentTokens + estimated < maxContextTokens) {
-              finalContext.push(`FILE: ${file.path}\n\`\`\`${file.language}\n${file.content}\n\`\`\``);
-              currentTokens += estimated;
             }
-          }
+          });
         }
       }
     }
 
     return finalContext.join('\n\n');
-  }
-
-  async getDiscoveryPrompts(stats: ProcessingStats, sampleChunks: LogChunk[]): Promise<string[]> {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const sample = sampleChunks.slice(0, 3).map(c => c.content).join('\n');
-    
-    const prompt = `
-      As an expert SRE and Security Engineer, analyze this log file metadata and content sample.
-      FILE: ${stats.fileName} (${stats.fileInfo?.format})
-      SEVERITIES: ${JSON.stringify(stats.severities)}
-      INFERRED SOURCE FILES: ${stats.inferredFiles.join(', ')}
-      SAMPLE CONTENT:
-      ${sample.substring(0, 2000)}
-
-      Suggest 4 highly specific, high-value investigative questions the user could ask to find issues or insights in this specific file.
-      Focus on anomalies, performance, or security risks indicated by the sample or stats.
-      Return exactly 4 questions.
-    `;
-
-    try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              suggestions: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              }
-            },
-            required: ['suggestions']
-          }
-        }
-      });
-
-      const data = JSON.parse(response.text || '{}');
-      return data.suggestions || [];
-    } catch (e) {
-      return [
-        "What are the most frequent error messages?",
-        "Identify any unusual activity patterns.",
-        "Summarize the main system events.",
-        "Are there any security warnings?"
-      ];
-    }
-  }
-
-  private findRelevantChunks(chunks: LogChunk[], index: SearchIndex, query: string, topK: number = 7): LogChunk[] {
-    const queryLower = query.toLowerCase();
-    const queryTerms = queryLower
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(t => t.length > 2);
-
-    const scores = new Map<string, number>();
-
-    queryTerms.forEach(term => {
-      const matchingDocIds = index.invertedIndex.get(term);
-      if (matchingDocIds) {
-        const weight = index.termWeights.get(term) || 1.0;
-        matchingDocIds.forEach(id => {
-          scores.set(id, (scores.get(id) || 0) + weight);
-        });
-      }
-    });
-
-    const rankedIds = Array.from(scores.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, topK)
-      .map(entry => entry[0]);
-
-    return rankedIds.map(id => chunks.find(c => c.id === id)!).filter(Boolean);
   }
 
   async *analyzeLogsStream(
@@ -163,110 +85,163 @@ export class GeminiService {
     history: ChatMessage[] = [],
     retries: number = 3
   ): AsyncGenerator<any> {
-    if (!index) throw new Error("Search Index not compiled");
+    if (!index) {
+        yield { type: 'text', data: "Engine Error: The search index has not been compiled or was corrupted during restoration. Please re-ingest the log file to rebuild the forensic map." };
+        return;
+    }
     
     const rankedChunks = this.findRelevantChunks(chunks, index, query);
     const context = this.prepareContext(rankedChunks, history, sourceFiles, knowledgeFiles);
-    const recentHistory = history.slice(-5).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
 
     yield { type: 'sources', data: rankedChunks.map(c => c.id) };
 
     const systemInstruction = `
-      DIAGNOSTIC MANDATE: Analyze raw log data, internal runbooks, and source code for debugging and security analysis. 
-      You are an expert developer and SRE performing root cause analysis.
-      
-      CORE CAPABILITIES:
-      1. Pinpoint exact failure lines in stack traces.
-      2. Trace code flow across files (Caller -> Callee chain).
-      3. Use Google Search to find similar Stack Overflow issues or official library documentation if internal context is insufficient.
-      4. Generate solution paths based on internal runbooks AND external best practices.
-      5. Provide concrete code fix suggestions with before/after diff logic.
+      ROLE: You are the CloudLog AI Diagnostic Engine.
+      TASK: Perform Deep Forensic Analysis including Pattern Detection, Correlation, Performance profiling, Security scanning, and Environment profiling.
+
+      DIAGNOSTIC MANDATE:
+      1. PATTERN DETECTION: Identify recurring error clusters.
+      2. CORRELATION ANALYSIS: Link temporally related failures.
+      3. PERFORMANCE BOTTLENECKS: Highlight latency spikes.
+      4. SECURITY SCAN: Flag SQLi, XSS, or Auth bypass patterns.
+      5. ENVIRONMENT DETECTION: Identify if the error is environment-specific (OS, Runtime, Region, Host).
+      6. DEPENDENCY CHECK: Flag library version mismatches or outdated packages if detectable.
 
       OUTPUT FORMAT:
-      Your response should be high-quality Markdown.
-      
-      At the END of your text, you MUST include a JSON block for structured debugging insights:
+      Your text response should be technical Markdown. Use diagrams where possible.
+      At the END, include structured JSON blocks for the UI:
+
+      [ADVANCED_START]
+      {
+        "patterns": [{"signature": "...", "count": 5, "example": "...", "severity": "ERROR", "trend": "increasing"}],
+        "correlations": [{"sourceEvent": "DB Connect", "triggeredEvent": "API Timeout", "timeDeltaMs": 150, "confidence": 0.9, "causalLink": "..."}],
+        "bottlenecks": [{"operation": "Query User", "p95LatencyMs": 1200, "count": 45, "impact": "CRITICAL"}],
+        "securityInsights": [{"type": "Auth Anomaly", "description": "...", "severity": "HIGH", "remediation": "..."}],
+        "memoryInsights": ["..."],
+        "environmentProfile": { "os": "...", "runtime": "...", "region": "...", "env": "...", "detectedAnomalies": ["..."] },
+        "dependencyAnomalies": [{ "library": "...", "currentVersion": "...", "suspectedIssue": "...", "remediation": "..." }]
+      }
+      [ADVANCED_END]
+
       [DEBUG_START]
-      [
-        {
-          "id": "sol-1",
-          "strategy": "Strategy name",
-          "confidence": 0.95,
-          "rootCause": "Explanation",
-          "fixes": [
-            {
-              "title": "Fix title",
-              "filePath": "path",
-              "originalCode": "code",
-              "suggestedCode": "code",
-              "explanation": "why",
-              "bestPractice": "check"
-            }
-          ],
-          "bestPractices": ["Rule 1"]
-        }
-      ]
+      [{
+        "id": "sol-1", 
+        "strategy": "...", 
+        "confidence": 0.95, 
+        "rootCause": "...", 
+        "fixes": [{"title": "...", "filePath": "...", "originalCode": "...", "suggestedCode": "...", "explanation": "..."}], 
+        "bestPractices": ["..."],
+        "reproSteps": ["Step 1...", "Step 2..."],
+        "unitTests": [{"title": "Reproduction Test", "code": "...", "language": "javascript"}],
+        "preventionStrategy": "Detailed explanation on how to prevent this in the future..."
+      }]
       [DEBUG_END]
 
-      And a JSON block for the execution trace:
       [ANALYSIS_START]
-      [...]
+      [{"file": "...", "line": 123, "method": "...", "description": "..."}]
       [ANALYSIS_END]
     `;
 
     const userPrompt = `
-      CONTEXT (LOGS + RELEVANT CODE + INTERNAL KNOWLEDGE):
+      CONTEXT:
       ${context}
       
-      PREVIOUS INTERACTION:
-      ${recentHistory}
-
       QUERY:
       ${query}
     `;
 
-    if (modelId.startsWith('gemini')) {
-      let accumulatedText = "";
-      const isPro = modelId.includes('pro');
-      const stream = this.callGeminiStream(modelId, systemInstruction, userPrompt, retries, isPro);
-      for await (const chunk of stream) {
-        if (chunk.type === 'text') {
-          accumulatedText += chunk.data;
-          
-          if (accumulatedText.includes('[ANALYSIS_START]') && accumulatedText.includes('[ANALYSIS_END]')) {
-             const startIdx = accumulatedText.indexOf('[ANALYSIS_START]') + '[ANALYSIS_START]'.length;
-             const endIdx = accumulatedText.indexOf('[ANALYSIS_END]');
-             const jsonStr = accumulatedText.substring(startIdx, endIdx).trim();
-             try {
-               const analysisSteps = JSON.parse(jsonStr);
-               yield { type: 'analysis', data: analysisSteps };
-               accumulatedText = accumulatedText.substring(0, accumulatedText.indexOf('[ANALYSIS_START]'));
-               yield { type: 'text_replace', data: accumulatedText };
-             } catch (e) {}
-          }
+    let accumulatedText = "";
+    const isPro = modelId.includes('pro');
+    const stream = this.callGeminiStream(modelId, systemInstruction, userPrompt, retries, isPro);
+    
+    for await (const chunk of stream) {
+      if (chunk.type === 'text') {
+        accumulatedText += chunk.data;
+        
+        if (accumulatedText.includes('[ADVANCED_START]') && accumulatedText.includes('[ADVANCED_END]')) {
+           const startIdx = accumulatedText.indexOf('[ADVANCED_START]') + '[ADVANCED_START]'.length;
+           const endIdx = accumulatedText.indexOf('[ADVANCED_END]');
+           try {
+             const data = JSON.parse(accumulatedText.substring(startIdx, endIdx).trim());
+             yield { type: 'advanced_analysis', data };
+             accumulatedText = accumulatedText.split('[ADVANCED_START]')[0];
+             yield { type: 'text_replace', data: accumulatedText };
+           } catch (e) {}
+        }
 
-          if (accumulatedText.includes('[DEBUG_START]') && accumulatedText.includes('[DEBUG_END]')) {
-             const startIdx = accumulatedText.indexOf('[DEBUG_START]') + '[DEBUG_START]'.length;
-             const endIdx = accumulatedText.indexOf('[DEBUG_END]');
-             const jsonStr = accumulatedText.substring(startIdx, endIdx).trim();
-             try {
-               const debugSolutions = JSON.parse(jsonStr);
-               yield { type: 'debug_solutions', data: debugSolutions };
-               accumulatedText = accumulatedText.substring(0, accumulatedText.indexOf('[DEBUG_START]'));
-               yield { type: 'text_replace', data: accumulatedText };
-             } catch (e) {}
-          }
+        if (accumulatedText.includes('[ANALYSIS_START]') && accumulatedText.includes('[ANALYSIS_END]')) {
+           const startIdx = accumulatedText.indexOf('[ANALYSIS_START]') + '[ANALYSIS_START]'.length;
+           const endIdx = accumulatedText.indexOf('[ANALYSIS_END]');
+           try {
+             const analysisSteps = JSON.parse(accumulatedText.substring(startIdx, endIdx).trim());
+             yield { type: 'analysis', data: analysisSteps };
+             accumulatedText = accumulatedText.split('[ANALYSIS_START]')[0];
+             yield { type: 'text_replace', data: accumulatedText };
+           } catch (e) {}
+        }
 
-          if (!accumulatedText.includes('[ANALYSIS_START]') && !accumulatedText.includes('[DEBUG_START]')) {
-            yield chunk;
-          }
-        } else if (chunk.type === 'grounding') {
-          yield chunk;
-        } else {
+        if (accumulatedText.includes('[DEBUG_START]') && accumulatedText.includes('[DEBUG_END]')) {
+           const startIdx = accumulatedText.indexOf('[DEBUG_START]') + '[DEBUG_START]'.length;
+           const endIdx = accumulatedText.indexOf('[DEBUG_END]');
+           try {
+             const debugSolutions = JSON.parse(accumulatedText.substring(startIdx, endIdx).trim());
+             yield { type: 'debug_solutions', data: debugSolutions };
+             accumulatedText = accumulatedText.split('[DEBUG_START]')[0];
+             yield { type: 'text_replace', data: accumulatedText };
+           } catch (e) {}
+        }
+
+        if (!accumulatedText.includes('[ANALYSIS_START]') && !accumulatedText.includes('[DEBUG_START]') && !accumulatedText.includes('[ADVANCED_START]')) {
           yield chunk;
         }
+      } else {
+        yield chunk;
       }
     }
+  }
+
+  async getDiscoveryPrompts(stats: ProcessingStats, sampleChunks: LogChunk[]): Promise<string[]> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const prompt = `
+      Analyze this log file's metadata and suggest 4 high-impact investigative questions.
+      Focus on Pattern Detection, Correlation, Performance, Security, and Memory.
+      FILE: ${stats.fileName}
+      Return JSON: { "suggestions": ["..."] }
+    `;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: { suggestions: { type: Type.ARRAY, items: { type: Type.STRING } } },
+            required: ['suggestions']
+          }
+        }
+      });
+      return JSON.parse(response.text || '{}').suggestions || [];
+    } catch (e) {
+      return ["Perform a pattern analysis", "Analyze performance correlations", "Check for security threats", "Identify memory leaks"];
+    }
+  }
+
+  private findRelevantChunks(chunks: LogChunk[], index: SearchIndex, query: string, topK: number = 7): LogChunk[] {
+    const queryTerms = query.toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(t => t.length > 2);
+    const scores = new Map<string, number>();
+
+    queryTerms.forEach(term => {
+      const matchingDocIds = index.invertedIndex.get(term);
+      if (matchingDocIds) {
+        const weight = index.termWeights.get(term) || 1.0;
+        matchingDocIds.forEach(id => scores.set(id, (scores.get(id) || 0) + weight));
+      }
+    });
+
+    const rankedIds = Array.from(scores.entries()).sort((a, b) => b[1] - a[1]).slice(0, topK).map(e => e[0]);
+    return rankedIds.map(id => chunks.find(c => c.id === id)!).filter(Boolean);
   }
 
   private async *callGeminiStream(model: string, system: string, user: string, retries: number, useSearch: boolean): AsyncGenerator<any> {
@@ -275,32 +250,21 @@ export class GeminiService {
     while (attempt <= retries) {
       try {
         const response = await ai.models.generateContentStream({
-          model: model,
+          model,
           contents: user,
-          config: { 
-            systemInstruction: system,
-            temperature: 0.1,
-            tools: useSearch ? [{googleSearch: {}}] : undefined
-          }
+          config: { systemInstruction: system, temperature: 0.1, tools: useSearch ? [{googleSearch: {}}] : undefined }
         });
-
         for await (const chunk of response) {
           const c = chunk as GenerateContentResponse;
           if (c.text) yield { type: 'text', data: c.text };
-          
           const grounding = c.candidates?.[0]?.groundingMetadata?.groundingChunks;
-          if (grounding) {
-            yield { type: 'grounding', data: grounding };
-          }
+          if (grounding) yield { type: 'grounding', data: grounding };
         }
         return;
       } catch (error: any) {
-        const isRateLimit = error.message?.includes('429') || error.status === 429;
-        if (isRateLimit && attempt < retries) {
+        if (error.message?.includes('429') && attempt < retries) {
           attempt++;
-          const waitTime = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
-          yield { type: 'status', data: `Rate limited. Retrying...` };
-          await this.delay(waitTime);
+          await this.delay(Math.pow(2, attempt) * 1000);
           continue;
         }
         throw error;
