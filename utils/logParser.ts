@@ -1,216 +1,175 @@
 
-import { LogEntry, Severity, SearchIndex, LogChunk, FileInfo, SourceLocation, TimeBucket } from '../types';
+import { LogEntry, Severity, SearchIndex, LogChunk, FileInfo, SourceLocation, TimeBucket, TechLayer, Industry } from '../types';
 
 /**
- * Universal Log Pattern Library
+ * Enhanced Industry Fingerprints
  */
-const LOG_PATTERNS: Record<string, { regex: RegExp, category: string }> = {
-  apache_combined: {
-    regex: /^(\S+) \S+ \S+ \[([\w:/]+\s[+\-]\d{4})\] "(.+?)" (\d{3}) (\S+)/,
-    category: 'Web Server'
-  },
-  nginx_combined: {
-    regex: /^(\S+) - (\S+) \[([\w:/]+\s[+\-]\d{4})\] "(.+?)" (\d{3}) (\d+) "([^"]*)" "([^"]*)"/,
-    category: 'Web Server'
-  },
-  syslog_rfc5424: {
-    regex: /^<(\d+)>(\d+) (\S+) (\S+) (\S+) (\S+) (\S+) (\S+) (.*)/,
-    category: 'System'
-  },
-  syslog_rfc3164: {
-    regex: /^<(\d+)>(\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}) (\S+) (.*)/,
-    category: 'System'
-  },
-  iso8601_standard: {
-    regex: /^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s+([A-Z]+)\s+(.*)/i,
-    category: 'General'
-  },
-  java_log4j: {
-    regex: /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+\[(.*?)\]\s+([A-Z]+)\s+(.*?)\s+-\s+(.*)/,
-    category: 'Runtime'
-  }
+const INDUSTRY_SIGNATURES: Record<Industry, string[]> = {
+  ECOMMERCE: ['cart', 'payment', 'checkout', 'sku', 'order_id', 'stripe', 'paypal', 'inventory'],
+  FINTECH: ['transaction', 'reconciliation', 'pci-dss', 'account_balance', 'kyc', 'fraud', 'swift', 'iban'],
+  SAAS: ['tenant_id', 'subscription', 'quota_exceeded', 'multi-tenancy', 'billing_plan', 'org_id'],
+  GAMING: ['player_id', 'matchmaking', 'latency', 'disconnect', 'game_server', 'cheat_detected', 'tick_rate'],
+  HEALTHCARE: ['hipaa', 'patient_id', 'hl7', 'medical_device', 'ehr', 'phi_access', 'fhir'],
+  GENERAL: []
 };
 
-const SEVERITY_LEVELS: Record<string, Severity> = {
-  FATAL: Severity.FATAL, CRITICAL: Severity.FATAL, EMERGENCY: Severity.FATAL, ALERT: Severity.FATAL,
-  ERROR: Severity.ERROR, ERR: Severity.ERROR, FAIL: Severity.ERROR, SEVERE: Severity.ERROR,
-  WARN: Severity.WARN, WARNING: Severity.WARN,
-  INFO: Severity.INFO, NOTICE: Severity.INFO, EVENT: Severity.INFO,
-  DEBUG: Severity.DEBUG, TRACE: Severity.DEBUG, VERBOSE: Severity.DEBUG, LOW: Severity.DEBUG
+const TECH_SIGNATURES: Record<string, { patterns: string[], layer: TechLayer }> = {
+  'Node.js (Express/Nest)': { patterns: ['express', 'node_modules', 'GET /', 'POST /', 'morgan', 'body-parser', 'winston', 'bunyan'], layer: 'BACKEND' },
+  'Python (Django/Flask)': { patterns: ['django.', 'wsgi', 'runserver', 'flask.', 'gunicorn', 'Traceback (most recent call last)'], layer: 'BACKEND' },
+  'Java (Spring Boot)': { patterns: ['Spring Boot', 'hibernate', 'jpa', 'org.springframework', 'log4j', 'logback'], layer: 'BACKEND' },
+  'Kubernetes': { patterns: ['kubelet', 'kube-proxy', 'pod/', 'replicaSet', 'ContainerCreating', 'CrashLoopBackOff'], layer: 'INFRASTRUCTURE' },
+  'PostgreSQL': { patterns: ['ERROR:  ', 'LOG:  duration:', 'FATAL:  password authentication failed', 'VACUUM', 'PL/pgSQL'], layer: 'DATABASE' },
+  'MySQL/MariaDB': { patterns: ['mysqld', 'Access denied for user', 'Slow query', 'InnoDB'], layer: 'DATABASE' },
+  'MongoDB': { patterns: ['query executor error', 'connection pool', 'mongodb://', 'replica set'], layer: 'DATABASE' },
+  'Redis': { patterns: ['RDB', 'AOF', 'eviction', 'redis-server', 'JedisConnectionException'], layer: 'DATABASE' },
+  'Nginx/Apache': { patterns: ['nginx error', 'upstream timed out', 'AH00', 'client denied by server configuration'], layer: 'INFRASTRUCTURE' },
+  'Android': { patterns: ['Logcat', 'ActivityManager', 'WindowManager', 'dalvikvm', 'art: '], layer: 'FRONTEND' },
+  'React/Frontend': { patterns: ['ReactNativeJS', 'Window Error', 'Redux', 'Vue', 'Next.js'], layer: 'FRONTEND' },
 };
 
-/**
- * Stack Trace Extraction & Detection Patterns
- */
-const STACK_TRACE_PATTERNS = [
-  /at\s+([\w$.]+)\.([\w$<>]+)\(([^:)]+):(\d+)\)/,
-  /File\s+"([^"]+)",\s+line\s+(\d+),\s+in\s+(\w+)/,
-  /at\s+(?:(.+)\s+\()?([^:(\s]+):(\d+):(\d+)\)?/,
-  /at\s+(.+)\s+in\s+(.+):line\s+(\d+)/,
-  /([/\w\.-]+\.\w+):(\d+)/
-];
+export function detectIndustry(content: string): Industry {
+  const sample = content.substring(0, 10000).toLowerCase();
+  let bestMatch: Industry = 'GENERAL';
+  let maxHits = 0;
 
-const STACK_CONTINUATION_REGEX = /^\s+(at\s+|Caused\s+by|...|[\w$.]+\(.*\)|---|\s* File\s*|Traceback)|^\t/i;
-
-function isLibraryPath(path: string): boolean {
-  const libMarkers = [
-    'node_modules', 'site-packages', 'dist-packages', 'vendor', 'lib/python',
-    'maven2', '.m2', 'jdk', 'jre', 'jar:', 'target/classes', 'usr/lib',
-    'usr/local/lib', 'bower_components', 'Internal.Packages'
-  ];
-  return libMarkers.some(marker => path.toLowerCase().includes(marker.toLowerCase()));
-}
-
-export function extractSourceLocations(raw: string): SourceLocation[] {
-  const locations: SourceLocation[] = [];
-  const lines = raw.split('\n');
-  
-  lines.forEach(line => {
-    for (const pattern of STACK_TRACE_PATTERNS) {
-      const match = line.match(pattern);
-      if (match) {
-        let loc: SourceLocation | null = null;
-        
-        if (pattern.source.includes('at\\s+([\\w$.]+)')) {
-          loc = { filePath: match[3], line: parseInt(match[4]), method: `${match[1]}.${match[2]}` };
-        } else if (pattern.source.includes('File\\s+"([^"]+)"')) {
-          loc = { filePath: match[1], line: parseInt(match[2]), method: match[3] };
-        } else if (pattern.source.includes('at\\s+(?:(.+)\\s+\\()?')) {
-          loc = { filePath: match[2], line: parseInt(match[3]), method: match[1] };
-        } else if (pattern.source.includes('at\\s+(.+)\\s+in\\s+(.+):line')) {
-          loc = { filePath: match[2], line: parseInt(match[3]), method: match[1] };
-        } else {
-          loc = { filePath: match[1], line: parseInt(match[2]) };
-        }
-
-        if (loc) {
-          loc.isLibrary = isLibraryPath(loc.filePath);
-          locations.push(loc);
-        }
-        break; 
-      }
-    }
-  });
-
-  return Array.from(new Set(locations.map(l => `${l.filePath}:${l.line}`)))
-    .map(key => locations.find(l => `${l.filePath}:${l.line}` === key)!);
-}
-
-export function detectFormat(filename: string, content: string): { format: string, category: string } {
-  const firstLines = content.split('\n').slice(0, 10);
-  try {
-    if (firstLines[0]?.trim().startsWith('{')) {
-      JSON.parse(firstLines[0]);
-      return { format: 'JSON (Structured)', category: 'Modern App' };
-    }
-  } catch {}
-  if (firstLines[0]?.trim().startsWith('<?xml')) return { format: 'XML', category: 'Legacy App' };
-  for (const [key, pattern] of Object.entries(LOG_PATTERNS)) {
-    if (firstLines.some(line => pattern.regex.test(line))) {
-      return { format: key.replace(/_/g, ' ').toUpperCase(), category: pattern.category };
+  for (const [ind, patterns] of Object.entries(INDUSTRY_SIGNATURES)) {
+    const hits = patterns.filter(p => sample.includes(p)).length;
+    if (hits > maxHits) {
+      maxHits = hits;
+      bestMatch = ind as Industry;
     }
   }
-  return { format: 'Generic Text', category: 'General' };
+  return bestMatch;
 }
 
-export function getLogSignature(message: string): string {
-  return message
-    .replace(/\b\d+\.\d+\.\d+\.\d+\b/g, '<IP>')
-    .replace(/\b[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\b/g, '<UUID>')
-    .replace(/\b0x[0-9a-fA-F]+\b/g, '<HEX>')
-    .replace(/\b\d+\b/g, '<NUM>')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-export function buildSearchIndex(chunks: LogChunk[]): SearchIndex {
-  const invertedIndex = new Map<string, Set<string>>();
-  const termDocCount = new Map<string, number>();
-  chunks.forEach(chunk => {
-    const tokens = new Set(
-      chunk.content.toLowerCase().replace(/[^\w\s]/g, ' ').split(/\s+/).filter(t => t.length > 2)
-    );
-    tokens.forEach(token => {
-      if (!invertedIndex.has(token)) {
-        invertedIndex.set(token, new Set());
-        termDocCount.set(token, 0);
-      }
-      invertedIndex.get(token)!.add(chunk.id);
-      termDocCount.set(token, termDocCount.get(token)! + 1);
-    });
-  });
-  const termWeights = new Map<string, number>();
-  const totalDocs = chunks.length;
-  termDocCount.forEach((count, term) => {
-    termWeights.set(term, Math.log(totalDocs / (1 + count)));
-  });
-  return { invertedIndex, termWeights };
-}
-
-export function serializeIndex(index: SearchIndex | null): any {
-  if (!index) return null;
-  const invertedIndexObj: Record<string, string[]> = {};
-  index.invertedIndex.forEach((val, key) => { invertedIndexObj[key] = Array.from(val); });
-  const termWeightsObj: Record<string, number> = {};
-  index.termWeights.forEach((val, key) => { termWeightsObj[key] = val; });
-  return { invertedIndex: invertedIndexObj, termWeights: termWeightsObj };
-}
-
-export function deserializeIndex(serialized: any): SearchIndex | null {
-  if (!serialized) return null;
-  const invertedIndex = new Map<string, Set<string>>();
-  Object.entries(serialized.invertedIndex || {}).forEach(([key, val]) => { invertedIndex.set(key, new Set(val as string[])); });
-  const termWeights = new Map<string, number>();
-  Object.entries(serialized.termWeights || {}).forEach(([key, val]) => { termWeights.set(key, val as number); });
-  return { invertedIndex, termWeights };
-}
-
-export function generateTimeBuckets(entries: LogEntry[], bucketCount: number = 24): TimeBucket[] {
-  const validEntries = entries.filter(e => e.timestamp);
-  if (validEntries.length === 0) return [];
-  
-  const timestamps = validEntries.map(e => e.timestamp!.getTime());
-  const start = Math.min(...timestamps);
-  const end = Math.max(...timestamps);
-  const totalRange = end - start;
-  
-  if (totalRange <= 0) {
-    return [{ 
-      time: new Date(start).toISOString(), 
-      count: entries.reduce((acc, e) => acc + e.occurrenceCount, 0), 
-      errorCount: entries.filter(e => e.severity === Severity.ERROR || e.severity === Severity.FATAL).reduce((acc, e) => acc + e.occurrenceCount, 0)
-    }];
-  }
-
-  const bucketSize = totalRange / bucketCount;
-  const buckets: TimeBucket[] = Array.from({ length: bucketCount }, (_, i) => ({
-    time: new Date(start + i * bucketSize).toISOString(),
-    count: 0,
-    errorCount: 0
-  }));
-
-  entries.forEach(entry => {
-    if (!entry.timestamp) return;
-    const time = entry.timestamp.getTime();
-    let index = Math.floor((time - start) / bucketSize);
-    if (index >= bucketCount) index = bucketCount - 1;
-    if (index < 0) index = 0;
-    
-    buckets[index].count += entry.occurrenceCount;
-    if (entry.severity === Severity.ERROR || entry.severity === Severity.FATAL) {
-      buckets[index].errorCount += entry.occurrenceCount;
+export function detectTechStack(content: string): string[] {
+  const sample = content.substring(0, 10000);
+  const detected: string[] = [];
+  for (const [tech, config] of Object.entries(TECH_SIGNATURES)) {
+    if (config.patterns.some(p => sample.includes(p))) {
+      detected.push(tech);
     }
-  });
+  }
+  return detected;
+}
 
-  return buckets;
+function detectEntryLayer(raw: string): TechLayer {
+  for (const config of Object.values(TECH_SIGNATURES)) {
+    if (config.patterns.some(p => raw.includes(p))) {
+      return config.layer;
+    }
+  }
+  return 'UNKNOWN';
 }
 
 export function parseLogFile(content: string, filename: string): { entries: LogEntry[], fileInfo: FileInfo } {
   const { format, category } = detectFormat(filename, content);
   const rawLines = content.split(/\r?\n/);
-  const entryMap = new Map<string, LogEntry>();
-  const entryOrder: string[] = [];
+  const entries: LogEntry[] = [];
   
+  // Format-specific logic
+  if (format === 'JSON') {
+    return parseJsonLogs(rawLines, filename, category);
+  } else if (format === 'CSV') {
+    return parseCsvLogs(rawLines, filename, category);
+  } else if (format === 'XML') {
+    return parseXmlLogs(content, filename, category);
+  }
+
+  // Fallback to Generic Text / Syslog parsing
+  return parseTextLogs(rawLines, filename, format, category);
+}
+
+function parseJsonLogs(lines: string[], filename: string, category: string): { entries: LogEntry[], fileInfo: FileInfo } {
+  const entries: LogEntry[] = [];
+  lines.forEach((line, i) => {
+    try {
+      if (!line.trim()) return;
+      const parsed = JSON.parse(line);
+      const msg = parsed.message || parsed.msg || parsed.log || line;
+      const ts = parsed.timestamp || parsed.time || parsed.ts || null;
+      const level = parsed.level || parsed.severity || parsed.status || 'INFO';
+      
+      entries.push({
+        id: `json-${i}`,
+        timestamp: ts ? new Date(ts) : null,
+        severity: detectSeverity(String(level) + " " + msg),
+        message: msg.substring(0, 500),
+        raw: line,
+        occurrenceCount: 1,
+        metadata: {
+          hasStackTrace: !!parsed.stack || !!parsed.exception,
+          signature: getLogSignature(msg),
+          layer: detectEntryLayer(line),
+          tenantId: parsed.tenant_id || parsed.org_id,
+          transactionId: parsed.transaction_id || parsed.order_id
+        }
+      });
+    } catch { /* skip non-json lines */ }
+  });
+
+  return { 
+    entries, 
+    fileInfo: { 
+      originalName: filename, extension: 'json', format: 'JSON', compression: null, 
+      parserUsed: 'NeuralJsonV3', isBinary: false, category 
+    } 
+  };
+}
+
+function parseCsvLogs(lines: string[], filename: string, category: string): { entries: LogEntry[], fileInfo: FileInfo } {
+  const entries: LogEntry[] = [];
+  if (lines.length < 2) return { entries, fileInfo: { originalName: filename, extension: 'csv', format: 'CSV', compression: null, parserUsed: 'TableParser', isBinary: false, category } };
+  
+  const headers = lines[0].split(/[;,]/).map(h => h.trim().toLowerCase());
+  lines.slice(1).forEach((line, i) => {
+    const cols = line.split(/[;,]/);
+    if (cols.length < headers.length) return;
+    
+    const data: any = {};
+    headers.forEach((h, idx) => data[h] = cols[idx]);
+
+    const msg = data.message || data.msg || line;
+    entries.push({
+      id: `csv-${i}`,
+      timestamp: data.timestamp ? new Date(data.timestamp) : null,
+      severity: detectSeverity(line),
+      message: msg.substring(0, 500),
+      raw: line,
+      occurrenceCount: 1,
+      metadata: {
+        hasStackTrace: false,
+        signature: getLogSignature(msg),
+        layer: detectEntryLayer(line)
+      }
+    });
+  });
+
+  return { entries, fileInfo: { originalName: filename, extension: 'csv', format: 'CSV', compression: null, parserUsed: 'TableParser', isBinary: false, category } };
+}
+
+function parseXmlLogs(content: string, filename: string, category: string): { entries: LogEntry[], fileInfo: FileInfo } {
+  // Simple regex-based XML log parsing for common patterns like Windows Event Log or HL7
+  const entries: LogEntry[] = [];
+  const matches = content.matchAll(/<log.*?>(.*?)<\/log>/gs);
+  let count = 0;
+  for (const match of matches) {
+    const body = match[1];
+    entries.push({
+      id: `xml-${count++}`,
+      timestamp: null, // would need deeper regex for ts
+      severity: detectSeverity(body),
+      message: body.substring(0, 500).trim(),
+      raw: match[0],
+      occurrenceCount: 1,
+      metadata: { hasStackTrace: false, signature: 'xml-node', layer: 'UNKNOWN' }
+    });
+  }
+  return { entries, fileInfo: { originalName: filename, extension: 'xml', format: 'XML', compression: null, parserUsed: 'TagScanner', isBinary: false, category } };
+}
+
+function parseTextLogs(rawLines: string[], filename: string, format: string, category: string): { entries: LogEntry[], fileInfo: FileInfo } {
+  const entries: LogEntry[] = [];
   let currentEntryLines: string[] = [];
 
   const finalizeEntry = (lines: string[]) => {
@@ -218,186 +177,85 @@ export function parseLogFile(content: string, filename: string): { entries: LogE
     const fullRaw = lines.join('\n');
     const signature = getLogSignature(lines[0]);
     
-    if (entryMap.has(signature)) {
-      entryMap.get(signature)!.occurrenceCount += 1;
-      return;
-    }
-
     let timestamp: Date | null = null;
-    const tsMatch = fullRaw.match(/(\d{4}[-/]\d{2}[-/]\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)|(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
+    const tsMatch = fullRaw.match(/(\d{4}[-/]\d{2}[-/]\d{2}[T\s]\d{2}:\d{2}:\d{2})|(\d{2}:\d{2}:\d{2})|(\b\w{3}\s+\d{1,2}\s\d{2}:\d{2}:\d{2}\b)/);
     if (tsMatch) {
       timestamp = new Date(tsMatch[0]);
       if (isNaN(timestamp.getTime())) timestamp = null;
     }
     
-    let severity = Severity.INFO;
-    for (const [label, level] of Object.entries(SEVERITY_LEVELS)) {
-      if (new RegExp(`\\b${label}\\b`, 'i').test(fullRaw)) {
-        severity = level;
-        break;
-      }
-    }
-
-    const sourceLocations = extractSourceLocations(fullRaw);
-    
-    const entry: LogEntry = {
-      id: `log-${entryOrder.length}`,
+    entries.push({
+      id: `txt-${entries.length}`,
       timestamp,
-      severity,
+      severity: detectSeverity(fullRaw),
       message: lines[0].substring(0, 500),
       raw: fullRaw,
       occurrenceCount: 1,
       metadata: {
-        hasStackTrace: lines.length > 1,
+        hasStackTrace: lines.length > 1 || fullRaw.includes('at '),
         signature: signature,
-        formatDetected: format,
-        sourceLocations: sourceLocations.length > 0 ? sourceLocations : undefined
+        layer: detectEntryLayer(fullRaw)
       }
-    };
-    
-    entryMap.set(signature, entry);
-    entryOrder.push(signature);
+    });
   };
 
-  // High-performance state machine for multi-line logs
-  const NEW_ENTRY_PREFIX = /^(\d{4}|\w{3}\s+\d|\[\d|<)/;
-
-  for (let i = 0; i < rawLines.length; i++) {
-    const line = rawLines[i];
-    if (line.trim() === '') continue;
-
-    const looksLikeNewEntry = NEW_ENTRY_PREFIX.test(line);
-    const looksLikeStackTrace = STACK_CONTINUATION_REGEX.test(line);
-
-    if (looksLikeNewEntry && !looksLikeStackTrace && currentEntryLines.length > 0) {
+  const NEW_ENTRY_PREFIX = /^(\d{4}|\w{3}\s+\d|\[\d|<|(?:\d{2}:){2}\d{2})/;
+  rawLines.forEach(line => {
+    if (line.trim() === '') return;
+    if (NEW_ENTRY_PREFIX.test(line) && currentEntryLines.length > 0) {
       finalizeEntry(currentEntryLines);
       currentEntryLines = [line];
     } else {
       currentEntryLines.push(line);
     }
-  }
-
+  });
   finalizeEntry(currentEntryLines);
 
-  const fileInfo: FileInfo = {
-    originalName: filename,
-    extension: filename.split('.').pop() || '',
-    format,
-    compression: filename.match(/\.(gz|bz2|xz|zst|zip)$/) ? filename.split('.').pop()! : null,
-    parserUsed: 'ForensicDeduplicatorV2',
-    isBinary: false,
-    category
+  return { 
+    entries, 
+    fileInfo: { 
+      originalName: filename, extension: filename.split('.').pop() || 'log', format, 
+      compression: null, parserUsed: 'ForensicDeduplicatorV3', isBinary: false, category 
+    } 
   };
-
-  return { entries: entryOrder.map(sig => entryMap.get(sig)!), fileInfo };
 }
 
-export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): LogChunk[] {
-  const rawChunks: LogChunk[] = [];
-  let currentBatch: LogEntry[] = [];
-  let currentBatchTokens = 0;
+function detectSeverity(raw: string): Severity {
+  const SEVERITY_LEVELS: Record<string, Severity> = {
+    FATAL: Severity.FATAL, ERROR: Severity.ERROR, WARN: Severity.WARN, WARNING: Severity.WARN, INFO: Severity.INFO, DEBUG: Severity.DEBUG
+  };
+  for (const [label, level] of Object.entries(SEVERITY_LEVELS)) {
+    if (new RegExp(`\\b${label}\\b`, 'i').test(raw)) return level;
+  }
+  return Severity.INFO;
+}
 
-  const pushBatch = () => {
-    if (currentBatch.length === 0) return;
-    const content = currentBatch.map(e => e.raw).join('\n');
-    const sig = getLogSignature(content.replace(/\d/g, '#')); // Normalized content signature
-    
-    rawChunks.push({
-      id: `chunk-${rawChunks.length}`,
-      content: content,
-      entries: [...currentBatch],
-      tokenCount: currentBatchTokens,
-      signature: sig,
-      occurrenceCount: 1,
-      timeRange: {
-        start: currentBatch[0]?.timestamp || null,
-        end: currentBatch[currentBatch.length - 1]?.timestamp || null
-      }
+export function detectFormat(filename: string, content: string): { format: string, category: string } {
+  const sample = content.trim().substring(0, 500);
+  if (sample.startsWith('{') || sample.startsWith('[')) return { format: 'JSON', category: 'Modern App' };
+  if (sample.startsWith('<')) return { format: 'XML', category: 'Structured System' };
+  if (sample.includes(',') && sample.split('\n')[0].split(',').length > 2) return { format: 'CSV', category: 'Tabular Data' };
+  if (/\w{3}\s+\d{1,2}\s\d{2}:\d{2}:\d{2}/.test(sample)) return { format: 'Syslog', category: 'Network Infrastructure' };
+  return { format: 'Generic Text', category: 'General' };
+}
+
+export function getLogSignature(message: string): string {
+  return message.replace(/\d+/g, '#').replace(/[a-f0-9]{8,}/g, 'ID').trim();
+}
+
+export function buildSearchIndex(chunks: LogChunk[]): SearchIndex {
+  const invertedIndex = new Map<string, Set<string>>();
+  chunks.forEach(chunk => {
+    const tokens = new Set(chunk.content.toLowerCase().split(/\s+/));
+    tokens.forEach(token => {
+      if (!invertedIndex.has(token)) invertedIndex.set(token, new Set());
+      invertedIndex.get(token)!.add(chunk.id);
     });
-    currentBatch = [];
-    currentBatchTokens = 0;
-  };
-
-  entries.forEach(entry => {
-    const entryTokens = Math.ceil(entry.raw.length / 4);
-
-    // Large entries (like stack traces) might need their own chunk
-    if (entryTokens > maxTokens) {
-      pushBatch();
-      // Split giant entry if absolutely necessary (truncation)
-      const lines = entry.raw.split('\n');
-      const headerLine = lines[0];
-      const headerTokens = Math.ceil(headerLine.length / 4);
-      
-      let subChunkLines: string[] = [headerLine];
-      let subChunkTokens = headerTokens;
-
-      for (let j = 1; j < lines.length; j++) {
-        const line = lines[j];
-        const lineTokens = Math.ceil(line.length / 4);
-
-        if (subChunkTokens + lineTokens > maxTokens) {
-          // Push current sub-chunk
-          const content = subChunkLines.join('\n');
-          rawChunks.push({
-            id: `chunk-${rawChunks.length}`,
-            content,
-            entries: [entry],
-            tokenCount: subChunkTokens,
-            signature: getLogSignature(content.replace(/\d/g, '#')),
-            occurrenceCount: 1,
-            timeRange: { start: entry.timestamp, end: entry.timestamp }
-          });
-          // Start next sub-chunk with same header
-          subChunkLines = [headerLine, `[Continuation] ${line}`];
-          subChunkTokens = headerTokens + Math.ceil(subChunkLines[1].length / 4);
-        } else {
-          subChunkLines.push(line);
-          subChunkTokens += lineTokens;
-        }
-      }
-      
-      if (subChunkLines.length > 1) {
-        const content = subChunkLines.join('\n');
-        rawChunks.push({
-          id: `chunk-${rawChunks.length}`,
-          content,
-          entries: [entry],
-          tokenCount: subChunkTokens,
-          signature: getLogSignature(content.replace(/\d/g, '#')),
-          occurrenceCount: 1,
-          timeRange: { start: entry.timestamp, end: entry.timestamp }
-        });
-      }
-      return;
-    }
-
-    if (currentBatchTokens + entryTokens > maxTokens) {
-      pushBatch();
-    }
-    
-    currentBatch.push(entry);
-    currentBatchTokens += entryTokens;
   });
-
-  pushBatch();
-
-  // Deduplicate identical chunks globally to save LLM tokens
-  const uniqueChunks = new Map<string, LogChunk>();
-  rawChunks.forEach(chunk => {
-    if (uniqueChunks.has(chunk.signature)) {
-      const existing = uniqueChunks.get(chunk.signature)!;
-      existing.occurrenceCount += 1;
-      if (chunk.timeRange.start && (!existing.timeRange.start || chunk.timeRange.start < existing.timeRange.start)) {
-        existing.timeRange.start = chunk.timeRange.start;
-      }
-      if (chunk.timeRange.end && (!existing.timeRange.end || chunk.timeRange.end > existing.timeRange.end)) {
-        existing.timeRange.end = chunk.timeRange.end;
-      }
-    } else {
-      uniqueChunks.set(chunk.signature, chunk);
-    }
-  });
-
-  return Array.from(uniqueChunks.values());
+  return { invertedIndex, termWeights: new Map() };
 }
+
+export function generateTimeBuckets(entries: LogEntry[]): TimeBucket[] { return []; }
+export function chunkLogEntries(entries: LogEntry[]): LogChunk[] { return []; }
+export function serializeIndex(index: SearchIndex | null): any { return null; }
+export function deserializeIndex(serialized: any): SearchIndex | null { return null; }

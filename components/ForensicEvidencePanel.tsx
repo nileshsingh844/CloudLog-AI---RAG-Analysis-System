@@ -26,7 +26,10 @@ import {
   Check, 
   Filter,
   RefreshCw,
-  Zap
+  Zap,
+  Box,
+  Binary,
+  Layers
 } from 'lucide-react';
 import { Virtuoso } from 'react-virtuoso';
 
@@ -107,16 +110,49 @@ export const ForensicEvidencePanel: React.FC<ForensicEvidencePanelProps> = memo(
       
       {/* Evidence Panel Header */}
       <div className="px-6 py-6 border-b border-slate-900 bg-slate-950/30 shrink-0">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-500/10 rounded-xl border border-blue-500/20 shadow-lg">
               <Database size={18} className="text-blue-400" />
             </div>
             <div>
               <h3 className="text-sm font-black text-white uppercase tracking-widest">Evidence Lock</h3>
-              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest italic">Interactive Forensic Lab</p>
+              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest italic">Forensic Data Hub</p>
             </div>
           </div>
+        </div>
+
+        {/* Technology Fingerprint Section */}
+        <div className="space-y-4 mb-6">
+           <div className="flex items-center justify-between px-1">
+              <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                <Binary size={12} className="text-purple-500" />
+                Neural Fingerprint
+              </h4>
+              <span className="text-[8px] font-black text-slate-600 uppercase">Auto-Detected</span>
+           </div>
+           
+           <div className="flex flex-wrap gap-2">
+              {stats.detectedStack.length > 0 ? (
+                stats.detectedStack.map((tech, i) => (
+                  <div key={i} className="px-3 py-1.5 bg-purple-500/5 border border-purple-500/20 rounded-xl flex items-center gap-2 group hover:border-purple-500/40 transition-all shadow-lg">
+                     <Box size={10} className="text-purple-400" />
+                     <span className="text-[10px] font-black text-purple-200 uppercase tracking-tighter">{tech}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl flex items-center gap-2 opacity-50 italic">
+                  <span className="text-[10px] font-bold text-slate-500">Scanning signatures...</span>
+                </div>
+              )}
+           </div>
+
+           <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl flex items-center gap-3">
+              <Layers size={14} className="text-emerald-500 shrink-0" />
+              <p className="text-[9px] text-slate-400 font-medium leading-relaxed italic">
+                Stack-specific expertise loaded for <span className="text-emerald-400 font-bold">{stats.detectedStack[0] || 'Generic Environment'}</span> logic.
+              </p>
+           </div>
         </div>
 
         {/* Hidden System Overview Toggle */}

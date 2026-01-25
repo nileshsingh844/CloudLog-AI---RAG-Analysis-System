@@ -2,7 +2,7 @@
 // Fix: Added missing React import to resolve namespace and name errors.
 import React, { useRef, memo, useCallback, useState, useEffect, useMemo } from 'react';
 import { ChatMessage, ModelOption, CodeFile, ProcessingStats, LogChunk, LogSignature, Severity, OutputFormat, DiagnosticWorkflow } from '../types';
-import { Bot, User, Loader2, Link as LinkIcon, Sparkles, Zap, ChevronDown, ArrowUp, Command, ExternalLink, Globe, Paperclip, Mic, ShieldCheck, ListChecks, Copy, Check, RefreshCw, X, AlertTriangle, ShieldAlert, Info, FileText, Search, Microscope, Fingerprint, Database, Eye, FileOutput, LayoutPanelLeft, Compass, ArrowRight, Activity, MousePointer2 } from 'lucide-react';
+import { Bot, User, Loader2, Link as LinkIcon, Sparkles, Zap, ChevronDown, ArrowUp, Command, ExternalLink, Globe, Paperclip, Mic, ShieldCheck, ListChecks, Copy, Check, RefreshCw, X, AlertTriangle, ShieldAlert, Info, FileText, Search, Microscope, Fingerprint, Database, Eye, FileOutput, LayoutPanelLeft, Compass, ArrowRight, Activity, MousePointer2, Clock } from 'lucide-react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { PromptSuggestions } from './PromptSuggestions';
 import { AVAILABLE_MODELS } from '../store/useLogStore';
@@ -11,6 +11,7 @@ import { DebugInsightsPanel } from './DebugInsightsPanel';
 import { AdvancedAnalysisPanel } from './AdvancedAnalysisPanel';
 import { StructuredAnalysisRenderer } from './StructuredAnalysisRenderer';
 import { DiagnosticRoadmap } from './DiagnosticRoadmap';
+import { DiagnosticWizard } from './DiagnosticWizard';
 
 const QUICK_ACTIONS = [
   "Explain this error simply",
@@ -115,14 +116,8 @@ interface MessageItemProps {
 
 const MessageItem = memo(({ msg, sourceFiles, stats, messages, allChunks, onSendMessage }: MessageItemProps) => {
   const isUser = msg.role === 'user';
-  const [isCopied, setIsCopied] = useState(false);
-  const isError = msg.content.includes('Fault') || msg.content.includes('Error') || msg.content.includes('failure');
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(msg.content);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-  };
+  const isError = msg.content.includes('Fault') || msg.content.includes('Error') || msg.content.includes('failure') || msg.content.includes('Pausing');
+  const isQuotaError = msg.content.includes('Quota Exhausted') || msg.content.includes('Rate Limit');
 
   return (
     <div className={`w-full py-10 transition-colors ${isUser ? '' : 'bg-slate-900/10 border-y border-slate-900/5'}`}>
@@ -132,7 +127,7 @@ const MessageItem = memo(({ msg, sourceFiles, stats, messages, allChunks, onSend
             ${isUser 
               ? 'bg-slate-800 border-slate-700 text-slate-300' 
               : isError 
-              ? 'bg-red-600 border-red-500 text-white'
+              ? 'bg-red-600 border-red-500 text-white shadow-red-500/20'
               : 'bg-blue-600 border-blue-500 text-white shadow-blue-500/20'}`}>
             {isUser ? <User className="w-5 h-5" /> : isError ? <AlertTriangle className="w-6 h-6" /> : <Bot className="w-6 h-6" />}
           </div>
@@ -164,6 +159,31 @@ const MessageItem = memo(({ msg, sourceFiles, stats, messages, allChunks, onSend
                    </span>
                 </div>
               </div>
+            ) : isQuotaError ? (
+              <div className="p-8 bg-amber-500/5 border border-amber-500/20 rounded-[2.5rem] space-y-6 animate-in shake duration-500">
+                 <div className="flex items-center gap-4">
+                    <div className="p-3 bg-amber-500/10 rounded-2xl text-amber-500 shadow-xl border border-amber-500/20">
+                       <Clock size={24} className="animate-spin-slow" />
+                    </div>
+                    <div>
+                       <h4 className="text-sm font-black text-amber-500 uppercase tracking-widest">System Throttling Active</h4>
+                       <p className="text-[11px] text-slate-400 font-medium uppercase tracking-tight">Multi-Agent Backoff Triggered</p>
+                    </div>
+                 </div>
+                 <p className="text-slate-300 font-medium italic leading-relaxed">
+                   The Gemini API has reached its token limit for your current plan. To protect session integrity, the Orchestrator has paused the forensic stream.
+                 </p>
+                 <div className="flex flex-col sm:flex-row items-center gap-4">
+                    <button 
+                      onClick={() => onSendMessage("Resume forensic audit with current context")}
+                      className="flex items-center gap-2 px-6 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-amber-900/20"
+                    >
+                      <RefreshCw size={14} />
+                      Retry Link
+                    </button>
+                    <span className="text-[10px] text-slate-500 font-black uppercase italic tracking-widest">Wait 30-60s for full cooldown</span>
+                 </div>
+              </div>
             ) : isError ? (
               <div className="p-6 bg-red-500/5 border border-red-500/20 rounded-[2rem] space-y-4">
                  <p className="text-red-400 font-bold italic">"{msg.content}"</p>
@@ -177,6 +197,11 @@ const MessageItem = memo(({ msg, sourceFiles, stats, messages, allChunks, onSend
               </div>
             ) : msg.structuredReport ? (
               <div className="mb-6">
+                 {msg.structuredReport.wizardPlan && (
+                    <div className="mb-10">
+                       <DiagnosticWizard plan={msg.structuredReport.wizardPlan} />
+                    </div>
+                 )}
                  <StructuredAnalysisRenderer report={msg.structuredReport} allChunks={allChunks} />
               </div>
             ) : (
@@ -186,50 +211,14 @@ const MessageItem = memo(({ msg, sourceFiles, stats, messages, allChunks, onSend
 
           {!isUser && !msg.isLoading && !isError && (
             <div className="space-y-8 mt-6">
-              {msg.advancedAnalysis && <AdvancedAnalysisPanel data={msg.advancedAnalysis} />}
               {msg.analysisSteps && msg.analysisSteps.length > 0 && <CodeFlowTrace steps={msg.analysisSteps} sourceFiles={sourceFiles} />}
               {msg.debugSolutions && msg.debugSolutions.length > 0 && <DebugInsightsPanel solutions={msg.debugSolutions} stats={stats} messages={messages} sourceFiles={sourceFiles} />}
 
-              {/* Evidence Baseline - Grounding Display */}
               <EvidenceBaseline 
                 sourceIds={msg.sources || []} 
                 allChunks={allChunks} 
                 confidence={msg.structuredReport?.confidence_score || msg.confidence_score} 
               />
-
-              <div className="flex flex-col gap-4 pt-6 border-t border-slate-900/50">
-                {msg.groundingLinks && msg.groundingLinks.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {msg.groundingLinks.map((link, idx) => (
-                      <a key={idx} href={link.uri} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/5 border border-blue-500/10 rounded-xl hover:bg-blue-600/10 transition-all text-[11px] text-slate-400 hover:text-blue-300">
-                        <Globe size={12} className="text-blue-500" />
-                        <span className="font-bold truncate max-w-[150px]">{link.title}</span>
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {!isUser && !msg.isLoading && !isError && msg.followUpSuggestions && msg.followUpSuggestions.length > 0 && (
-            <div className="pt-8 mt-4 animate-in fade-in slide-in-from-bottom-3 duration-1000">
-               <div className="flex items-center gap-2 mb-4">
-                  <Sparkles size={14} className="text-blue-500/60" />
-                  <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Suggested Next Steps</span>
-               </div>
-               <div className="flex flex-wrap gap-3">
-                  {msg.followUpSuggestions.map((suggestion, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => onSendMessage(suggestion)}
-                      className="px-5 py-2.5 bg-slate-900 border border-slate-800 hover:border-blue-500/40 rounded-2xl text-[13px] font-bold text-slate-400 hover:text-slate-100 transition-all shadow-xl flex items-center gap-3 group"
-                    >
-                      {suggestion}
-                      <ArrowUp size={12} className="opacity-0 group-hover:opacity-100 transition-all rotate-90" />
-                    </button>
-                  ))}
-               </div>
             </div>
           )}
         </div>
@@ -323,7 +312,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
     
     const hasSummary = messages.some(m => m.role === 'assistant' && (m.content.toLowerCase().includes('summary') || m.structuredReport));
     const hasRootCause = messages.some(m => m.role === 'assistant' && m.content.toLowerCase().includes('root cause'));
-    const hasMitigation = messages.some(m => m.role === 'assistant' && (m.content.toLowerCase().includes('remediation') || m.debugSolutions));
 
     if (!hasSummary) {
       return {
@@ -462,15 +450,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
                      The Discovery engine has identified high-entropy patterns in your logs. Select one from the <span className="text-blue-400 font-bold">Discovery Panel</span> on the right to start an audit.
                    </p>
                 </div>
-
-                <div className="flex items-center gap-4 p-4 bg-slate-900/50 border border-slate-800 rounded-2xl">
-                   <div className="p-2 bg-blue-500/10 rounded-xl">
-                      <Info size={18} className="text-blue-400" />
-                   </div>
-                   <p className="text-[11px] text-slate-400 text-left leading-relaxed italic">
-                     Focusing on a specific signature allows the AI to perform deep-link logic correlation across your multi-node stream.
-                   </p>
-                </div>
              </div>
           </div>
         ) : (
@@ -577,7 +556,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
             </div>
           </div>
 
-          {/* Quick Action Chips */}
           <div className="flex flex-wrap gap-2 mt-4 px-2">
             {QUICK_ACTIONS.map((action, idx) => (
               <button
@@ -592,6 +570,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
           </div>
         </div>
       </div>
+      <style>{`
+        @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .animate-spin-slow {
+          animation: spin-slow 8s linear infinite;
+        }
+      `}</style>
     </div>
   );
 });
