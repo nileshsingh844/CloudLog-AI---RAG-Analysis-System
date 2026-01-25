@@ -100,7 +100,8 @@ export const FileTree: React.FC<FileTreeProps> = ({ files, onSelectFile, selecte
           ) : null}
         </div>
         
-        {hasChildren && Object.values(node.children!).sort((a, b) => {
+        {/* @google/genai coding guidelines: Explicitly casting Object.values to TreeNode[] to fix 'unknown' type issues in sort and map */}
+        {hasChildren && (Object.values(node.children!) as TreeNode[]).sort((a, b) => {
           if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
           return a.name.localeCompare(b.name);
         }).map(child => renderNode(child, depth + 1))}
@@ -110,7 +111,8 @@ export const FileTree: React.FC<FileTreeProps> = ({ files, onSelectFile, selecte
 
   return (
     <div className="space-y-1 py-2">
-      {Object.values(tree).sort((a, b) => {
+      {/* @google/genai coding guidelines: Explicitly casting Object.values(tree) to TreeNode[] to resolve unknown type property access errors */}
+      {(Object.values(tree) as TreeNode[]).sort((a, b) => {
         if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
         return a.name.localeCompare(b.name);
       }).map(node => renderNode(node, 0))}

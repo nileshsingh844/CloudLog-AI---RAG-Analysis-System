@@ -29,8 +29,6 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
 }) => {
   if (!isOpen) return null;
 
-  const providers: LLMProvider[] = ['google-gemini', 'openai', 'anthropic', 'mistral'];
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/90 backdrop-blur-md animate-in fade-in duration-300">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 max-h-[95vh] flex flex-col">
@@ -142,7 +140,7 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
                   </h3>
                   {stats && (
                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">
-                      {stats.referencedFiles.filter(f => !f.uploaded).length} Missing Points
+                      {(stats.referencedFiles || []).filter(f => !f.uploaded).length} Missing Points
                     </span>
                   )}
                 </div>
@@ -155,7 +153,8 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[300px] overflow-y-auto scrollbar-hide pr-2">
-                       {stats.referencedFiles.map((rf, i) => (
+                       {/* FIX: Use optional chaining and default array to prevent mapping issues */}
+                       {(stats.referencedFiles || []).map((rf, i) => (
                          <div key={i} className="flex items-center justify-between p-3 bg-slate-900/60 border border-slate-800 rounded-xl group">
                             <div className="flex items-center gap-3 min-w-0">
                                <div className={`p-1.5 rounded-lg ${rf.uploaded ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
@@ -178,7 +177,7 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
                        ))}
                     </div>
                   )}
-                  {stats && stats.referencedFiles.length > 0 && (
+                  {stats && (stats.referencedFiles || []).length > 0 && (
                     <div className="p-3 bg-blue-500/5 rounded-xl border border-blue-500/10">
                        <p className="text-[9px] text-blue-400 font-medium italic leading-relaxed text-center">
                          Upload missing code files to bridge log trace points to high-fidelity logic analysis.
@@ -197,7 +196,7 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
                  <div className="grid grid-cols-2 gap-4">
                     <div className="bg-slate-800/30 border border-slate-800 rounded-2xl p-5">
                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Involved Nodes</p>
-                       <p className="text-2xl font-black text-white italic">{stats?.processedFiles.length || 0}</p>
+                       <p className="text-2xl font-black text-white italic">{stats?.processedFiles?.length || 0}</p>
                     </div>
                     <div className="bg-slate-800/30 border border-slate-800 rounded-2xl p-5">
                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Global Overlap</p>

@@ -147,7 +147,7 @@ export const CodeFlowTrace: React.FC<CodeFlowTraceProps> = ({ steps, sourceFiles
                           const isTarget = lineNum === step.line;
                           return (
                             <div key={i} className={`flex transition-colors relative ${isTarget ? 'bg-blue-600/10 -mx-4 px-4 border-l-2 border-blue-500' : 'opacity-30 hover:opacity-80 hover:bg-white/5'}`}>
-                              <span className={`w-10 text-right pr-4 shrink-0 select-none font-bold ${isTarget ? 'text-blue-400' : 'text-slate-700'}`}>
+                              <span className={`w-12 text-right pr-4 shrink-0 select-none font-bold ${isTarget ? 'text-blue-400' : 'text-slate-700'}`}>
                                 {lineNum}
                               </span>
                               <span className={`whitespace-pre ${isTarget ? 'text-blue-100 font-medium' : 'text-slate-500'}`}>

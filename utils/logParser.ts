@@ -1,18 +1,5 @@
 
-import { LogEntry, Severity, SearchIndex, LogChunk, FileInfo, SourceLocation, TimeBucket, FileInLog } from '../types';
-
-/**
- * Fast hashing for deduplication and caching
- */
-export function getFastHash(s: string): string {
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    const char = s.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return hash.toString(16);
-}
+import { LogEntry, Severity, SearchIndex, LogChunk, FileInfo, SourceLocation, TimeBucket } from '../types';
 
 /**
  * Universal Log Pattern Library
@@ -62,8 +49,6 @@ const STACK_TRACE_PATTERNS = [
   /at\s+(.+)\s+in\s+(.+):line\s+(\d+)/,
   /([/\w\.-]+\.\w+):(\d+)/
 ];
-
-const FILE_PATH_REGEX = /(?:[A-Za-z]:)?[/\\](?:[\w.-]+[/\\])+[\w.-]+\.\w+/g;
 
 const STACK_CONTINUATION_REGEX = /^\s+(at\s+|Caused\s+by|...|[\w$.]+\(.*\)|---|\s* File\s*|Traceback)|^\t/i;
 
@@ -220,54 +205,19 @@ export function generateTimeBuckets(entries: LogEntry[], bucketCount: number = 2
   return buckets;
 }
 
-export function parseLogFile(content: string, filename: string, offset: number = 0, existingLogs: LogEntry[] = []): { entries: LogEntry[], fileInfo: FileInfo, referencedFiles: FileInLog[], isDelta: boolean } {
+export function parseLogFile(content: string, filename: string): { entries: LogEntry[], fileInfo: FileInfo } {
   const { format, category } = detectFormat(filename, content);
   const rawLines = content.split(/\r?\n/);
   const entryMap = new Map<string, LogEntry>();
   const entryOrder: string[] = [];
   
-  // Intelligence v7.0: Delta Detection
-  const existingHashes = new Set(existingLogs.map(l => l.contentHash));
-  let isDelta = false;
-
-  const filesMentioned = new Map<string, { count: number, maxSev: Severity }>();
-
   let currentEntryLines: string[] = [];
 
   const finalizeEntry = (lines: string[]) => {
     if (lines.length === 0) return;
     const fullRaw = lines.join('\n');
-    const contentHash = getFastHash(fullRaw);
-    
-    // Skip if already in global session (simple incremental support)
-    if (existingHashes.has(contentHash)) {
-      isDelta = true;
-      return;
-    }
-
     const signature = getLogSignature(lines[0]);
     
-    // Extract file paths from this entry
-    const paths = fullRaw.match(FILE_PATH_REGEX);
-    let entrySeverity = Severity.UNKNOWN;
-    for (const [label, level] of Object.entries(SEVERITY_LEVELS)) {
-      if (new RegExp(`\\b${label}\\b`, 'i').test(fullRaw)) {
-        entrySeverity = level;
-        break;
-      }
-    }
-
-    if (paths) {
-      paths.forEach(p => {
-        if (p.includes('.') && p.length > 5 && !isLibraryPath(p)) {
-          const stats = filesMentioned.get(p) || { count: 0, maxSev: Severity.DEBUG };
-          stats.count++;
-          if (entrySeverity < stats.maxSev || stats.maxSev === Severity.DEBUG) stats.maxSev = entrySeverity;
-          filesMentioned.set(p, stats);
-        }
-      });
-    }
-
     if (entryMap.has(signature)) {
       entryMap.get(signature)!.occurrenceCount += 1;
       return;
@@ -280,18 +230,23 @@ export function parseLogFile(content: string, filename: string, offset: number =
       if (isNaN(timestamp.getTime())) timestamp = null;
     }
     
+    let severity = Severity.INFO;
+    for (const [label, level] of Object.entries(SEVERITY_LEVELS)) {
+      if (new RegExp(`\\b${label}\\b`, 'i').test(fullRaw)) {
+        severity = level;
+        break;
+      }
+    }
+
     const sourceLocations = extractSourceLocations(fullRaw);
-    const entryId = `log-${offset + entryOrder.length}`;
     
     const entry: LogEntry = {
-      id: entryId,
+      id: `log-${entryOrder.length}`,
       timestamp,
-      severity: entrySeverity,
+      severity,
       message: lines[0].substring(0, 500),
       raw: fullRaw,
       occurrenceCount: 1,
-      sourceFile: filename,
-      contentHash,
       metadata: {
         hasStackTrace: lines.length > 1,
         signature: signature,
@@ -304,6 +259,7 @@ export function parseLogFile(content: string, filename: string, offset: number =
     entryOrder.push(signature);
   };
 
+  // High-performance state machine for multi-line logs
   const NEW_ENTRY_PREFIX = /^(\d{4}|\w{3}\s+\d|\[\d|<)/;
 
   for (let i = 0; i < rawLines.length; i++) {
@@ -328,19 +284,12 @@ export function parseLogFile(content: string, filename: string, offset: number =
     extension: filename.split('.').pop() || '',
     format,
     compression: filename.match(/\.(gz|bz2|xz|zst|zip)$/) ? filename.split('.').pop()! : null,
-    parserUsed: 'ForensicDeduplicatorV3',
+    parserUsed: 'ForensicDeduplicatorV2',
     isBinary: false,
     category
   };
 
-  const referencedFiles: FileInLog[] = Array.from(filesMentioned.entries()).map(([path, stats]) => ({
-    path,
-    mentions: stats.count,
-    uploaded: false,
-    severityMax: stats.maxSev
-  }));
-
-  return { entries: entryOrder.map(sig => entryMap.get(sig)!), fileInfo, referencedFiles, isDelta };
+  return { entries: entryOrder.map(sig => entryMap.get(sig)!), fileInfo };
 }
 
 export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): LogChunk[] {
@@ -351,7 +300,7 @@ export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): 
   const pushBatch = () => {
     if (currentBatch.length === 0) return;
     const content = currentBatch.map(e => e.raw).join('\n');
-    const sig = getFastHash(content.replace(/\d/g, '#'));
+    const sig = getLogSignature(content.replace(/\d/g, '#')); // Normalized content signature
     
     rawChunks.push({
       id: `chunk-${rawChunks.length}`,
@@ -360,7 +309,6 @@ export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): 
       tokenCount: currentBatchTokens,
       signature: sig,
       occurrenceCount: 1,
-      contentHash: getFastHash(content),
       timeRange: {
         start: currentBatch[0]?.timestamp || null,
         end: currentBatch[currentBatch.length - 1]?.timestamp || null
@@ -373,8 +321,10 @@ export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): 
   entries.forEach(entry => {
     const entryTokens = Math.ceil(entry.raw.length / 4);
 
+    // Large entries (like stack traces) might need their own chunk
     if (entryTokens > maxTokens) {
       pushBatch();
+      // Split giant entry if absolutely necessary (truncation)
       const lines = entry.raw.split('\n');
       const headerLine = lines[0];
       const headerTokens = Math.ceil(headerLine.length / 4);
@@ -387,17 +337,18 @@ export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): 
         const lineTokens = Math.ceil(line.length / 4);
 
         if (subChunkTokens + lineTokens > maxTokens) {
+          // Push current sub-chunk
           const content = subChunkLines.join('\n');
           rawChunks.push({
             id: `chunk-${rawChunks.length}`,
             content,
             entries: [entry],
             tokenCount: subChunkTokens,
-            signature: getFastHash(content.replace(/\d/g, '#')),
+            signature: getLogSignature(content.replace(/\d/g, '#')),
             occurrenceCount: 1,
-            contentHash: getFastHash(content),
             timeRange: { start: entry.timestamp, end: entry.timestamp }
           });
+          // Start next sub-chunk with same header
           subChunkLines = [headerLine, `[Continuation] ${line}`];
           subChunkTokens = headerTokens + Math.ceil(subChunkLines[1].length / 4);
         } else {
@@ -413,9 +364,8 @@ export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): 
           content,
           entries: [entry],
           tokenCount: subChunkTokens,
-          signature: getFastHash(content.replace(/\d/g, '#')),
+          signature: getLogSignature(content.replace(/\d/g, '#')),
           occurrenceCount: 1,
-          contentHash: getFastHash(content),
           timeRange: { start: entry.timestamp, end: entry.timestamp }
         });
       }
@@ -432,6 +382,7 @@ export function chunkLogEntries(entries: LogEntry[], maxTokens: number = 2500): 
 
   pushBatch();
 
+  // Deduplicate identical chunks globally to save LLM tokens
   const uniqueChunks = new Map<string, LogChunk>();
   rawChunks.forEach(chunk => {
     if (uniqueChunks.has(chunk.signature)) {

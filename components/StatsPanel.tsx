@@ -20,7 +20,8 @@ const SEVERITY_COLORS: Record<string, string> = {
 export const StatsPanel: React.FC<StatsPanelProps> = memo(({ stats }) => {
   if (!stats) return null;
 
-  const chartData = Object.entries(stats.severities)
+  // @google/genai coding guidelines: Casting Object.entries to fix 'unknown' type inference on numeric values
+  const chartData = (Object.entries(stats.severities) as [string, number][])
     .filter(([_, count]) => count > 0)
     .map(([level, count]) => ({
       name: level,
