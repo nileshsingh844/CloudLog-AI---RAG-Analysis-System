@@ -1,5 +1,7 @@
 {
-  "name": "CloudLog AI - RAG Analysis System",
-  "description": "A high-performance log analysis platform using Retrieval-Augmented Generation (RAG) and Gemini AI to parse, index, and analyze massive log files with semantic intelligence.",
-  "requestFramePermissions": []
+  "name": "CloudLog AI - Distributed Forensic Intelligence",
+  "description": "High-performance, industry-aware log analysis system using Local-First RAG and Gemini 3 to analyze distributed traces 10x beyond token limits. Featuring specialized modules for FinTech/SaaS, neural deduplication, proactive sentinel monitoring, and ubiquitous integration with IDEs, CLI, and CI/CD pipelines.",
+  "requestFramePermissions": [
+    "camera"
+  ]
 }

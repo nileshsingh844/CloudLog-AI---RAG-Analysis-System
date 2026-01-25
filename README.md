@@ -1,6 +1,6 @@
 # 🌩️ CloudLog AI: Distributed Forensic Intelligence
 
-**CloudLog AI** is a high-performance, industry-aware log analysis system that transforms raw distributed traces into actionable engineering intelligence. By combining **Local-First RAG (Retrieval-Augmented Generation)** with **Gemini AI**, it provides deep forensic diagnostics, proactive anomaly detection, and cross-tier causality mapping.
+**CloudLog AI** is a high-performance, industry-aware forensic intelligence system designed to transform raw distributed traces into actionable engineering insights. By combining **Local-First RAG (Retrieval-Augmented Generation)** with **Gemini 3 (Pro & Flash)**, it empowers teams to analyze log streams **10x beyond standard LLM token limits** with deep semantic intelligence.
 
 ---
 
@@ -12,7 +12,7 @@ Traditional log management is reactive. CloudLog AI is **proactive** and **conte
 ## 🛠️ System Architecture
 
 ### 1. Local-First RAG Engine
-To ensure enterprise-grade security, CloudLog AI performs heavy lifting in the browser:
+To ensure enterprise-grade security and scale, CloudLog AI performs heavy lifting in the browser:
 - **Neural Deduplication**: Collapses millions of redundant log lines into unique forensic signatures.
 - **In-Memory Indexing**: Builds an inverted search index locally, ensuring raw logs never leave your infrastructure unless specifically requested for deep reasoning.
 - **Contextual Chunking**: Segments logs into semantic "Logic Nodes" for optimal LLM retrieval.
