@@ -1,10 +1,10 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, SystemMetrics, TimeBucket, ModelOption, TestReport, RegressiveReport, TestCase, CodeFile, PipelineStep, KnowledgeFile, CodeMarker, LogSignature, StructuredAnalysis } from '../types';
+import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, SystemMetrics, TimeBucket, ModelOption, TestReport, RegressiveReport, TestCase, CodeFile, PipelineStep, KnowledgeFile, CodeMarker, LogSignature, StructuredAnalysis, OutputFormat, DiagnosticWorkflow } from '../types';
 import { parseLogFile, chunkLogEntries, buildSearchIndex, serializeIndex, deserializeIndex, generateTimeBuckets } from '../utils/logParser';
 import JSZip from 'jszip';
 
-const STORAGE_KEY = 'cloudlog_ai_session_v4';
+const STORAGE_KEY = 'cloudlog_ai_session_v5';
 
 const initialMetrics: SystemMetrics = {
   queryLatency: [],
@@ -15,12 +15,27 @@ const initialMetrics: SystemMetrics = {
   memoryUsage: 0
 };
 
+const initialWorkflow: DiagnosticWorkflow = {
+  discovery: 'pending',
+  summary: 'pending',
+  rootCause: 'pending',
+  fix: 'pending',
+  report: 'pending'
+};
+
 export const AVAILABLE_MODELS: ModelOption[] = [
   { id: 'gemini-3-flash-preview', provider: 'google-gemini', name: 'Gemini 3 Flash', description: 'Ultra-fast analysis.', capabilities: ['speed', 'context'], status: 'active' },
   { id: 'gemini-3-pro-preview', provider: 'google-gemini', name: 'Gemini 3 Pro', description: 'High-reasoning debugging & Google Search.', capabilities: ['logic', 'context', 'search'], status: 'active' }
 ];
 
+export interface DiagnosticCacheEntry {
+  report: StructuredAnalysis;
+  sources: string[];
+}
+
 export function useLogStore() {
+  const [diagnosticCache, setDiagnosticCache] = useState<Record<string, DiagnosticCacheEntry>>({});
+  
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     const baseState: AppState = {
@@ -37,6 +52,8 @@ export function useLogStore() {
       stats: null,
       messages: [],
       selectedModelId: 'gemini-3-flash-preview',
+      outputFormat: 'detailed',
+      workflow: initialWorkflow,
       metrics: initialMetrics,
       viewMode: 'diagnostic',
       activeStep: 'ingestion',
@@ -50,7 +67,8 @@ export function useLogStore() {
       selectedLocation: null,
       selectedFilePath: null,
       discoverySignatures: [],
-      selectedSignatures: []
+      selectedSignatures: [],
+      activeInvestigationId: null
     };
 
     if (saved) {
@@ -63,6 +81,7 @@ export function useLogStore() {
             ...initialMetrics,
             ...(parsed.metrics || {})
           },
+          workflow: parsed.workflow || initialWorkflow,
           messages: (parsed.messages || []).map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) })),
           lastSaved: parsed.lastSaved ? new Date(parsed.lastSaved) : null,
           searchIndex: deserializeIndex(parsed.searchIndex),
@@ -94,6 +113,8 @@ export function useLogStore() {
           stats: state.stats,
           metrics: state.metrics,
           selectedModelId: state.selectedModelId,
+          outputFormat: state.outputFormat,
+          workflow: state.workflow,
           viewMode: state.viewMode,
           activeStep: state.activeStep,
           suggestions: state.suggestions,
@@ -104,26 +125,34 @@ export function useLogStore() {
           requiredContextFiles: state.requiredContextFiles,
           selectedFilePath: state.selectedFilePath,
           discoverySignatures: state.discoverySignatures,
-          selectedSignatures: state.selectedSignatures
+          selectedSignatures: state.selectedSignatures,
+          activeInvestigationId: state.activeInvestigationId
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
         setState(s => ({ ...s, saveStatus: 'idle' }));
       } catch (e) { console.error("Save error", e); }
     }, 2000);
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [state.messages.length, state.stats, state.metrics, state.selectedModelId, state.viewMode, state.activeStep, state.searchIndex, state.sourceFiles, state.knowledgeFiles, state.requiredContextFiles, state.selectedFilePath, state.discoverySignatures, state.selectedSignatures]);
+  }, [state.messages.length, state.stats, state.metrics, state.selectedModelId, state.outputFormat, state.workflow, state.viewMode, state.activeStep, state.searchIndex, state.sourceFiles, state.knowledgeFiles, state.requiredContextFiles, state.selectedFilePath, state.discoverySignatures, state.selectedSignatures, state.activeInvestigationId]);
 
   const setProcessing = useCallback((val: boolean) => setState(s => ({ ...s, isProcessing: val })), []);
   const setDiscovering = useCallback((val: boolean) => setState(s => ({ ...s, isDiscovering: val })), []);
   const setDeepDiving = useCallback((val: boolean) => setState(s => ({ ...s, isDeepDiving: val })), []);
   const setDiscoverySignatures = useCallback((sigs: LogSignature[]) => setState(s => ({ ...s, discoverySignatures: sigs })), []);
+  const setActiveInvestigationId = useCallback((id: string | null) => setState(s => ({ ...s, activeInvestigationId: id })), []);
+  
   const toggleSignatureSelection = useCallback((id: string) => setState(s => {
-    const selected = [...s.selectedSignatures];
-    const idx = selected.indexOf(id);
-    if (idx > -1) selected.splice(idx, 1);
-    else selected.push(id);
-    return { ...s, selectedSignatures: selected };
+    const isCurrentlySelected = s.selectedSignatures.includes(id);
+    return { 
+      ...s, 
+      selectedSignatures: isCurrentlySelected ? [] : [id],
+      activeInvestigationId: isCurrentlySelected ? null : id
+    };
   }), []);
+
+  const addToCache = useCallback((key: string, entry: DiagnosticCacheEntry) => {
+    setDiagnosticCache(prev => ({ ...prev, [key]: entry }));
+  }, []);
 
   const setGeneratingSuggestions = useCallback((val: boolean) => setState(s => ({ ...s, isGeneratingSuggestions: val })), []);
   const setIngestionProgress = useCallback((val: number) => setState(s => ({ ...s, ingestionProgress: val })), []);
@@ -133,6 +162,10 @@ export function useLogStore() {
   const setSuggestions = useCallback((suggestions: string[]) => setState(s => ({ ...s, suggestions })), []);
   const setSelectedLocation = useCallback((loc: { filePath: string; line: number } | null) => setState(s => ({ ...s, selectedLocation: loc, selectedFilePath: loc ? loc.filePath : s.selectedFilePath })), []);
   const setSelectedFilePath = useCallback((path: string | null) => setState(s => ({ ...s, selectedFilePath: path, selectedLocation: null })), []);
+  const setOutputFormat = useCallback((format: OutputFormat) => setState(s => ({ ...s, outputFormat: format })), []);
+  const setWorkflowStep = useCallback((step: keyof DiagnosticWorkflow, status: 'pending' | 'active' | 'completed') => {
+    setState(s => ({ ...s, workflow: { ...s.workflow, [step]: status } }));
+  }, []);
 
   const updateSourceFileMarkers = useCallback((logs: LogEntry[], sourceFiles: CodeFile[]) => {
     return sourceFiles.map(file => {
@@ -171,8 +204,11 @@ export function useLogStore() {
       selectedFilePath: null,
       discoverySignatures: [],
       selectedSignatures: [],
-      metrics: initialMetrics
+      activeInvestigationId: null,
+      metrics: initialMetrics,
+      workflow: initialWorkflow
     }));
+    setDiagnosticCache({});
   }, []);
 
   const clearSourceFiles = useCallback(() => {
@@ -314,8 +350,11 @@ export function useLogStore() {
         activeStep: 'analysis',
         requiredContextFiles: Array.from(inferredFilesSet),
         discoverySignatures: [],
-        selectedSignatures: []
+        selectedSignatures: [],
+        activeInvestigationId: null,
+        workflow: initialWorkflow
       }));
+      setDiagnosticCache({});
     } catch (err) {
       console.error("Ingestion error", err);
       setProcessing(false);
@@ -406,7 +445,9 @@ export function useLogStore() {
         loadTime: '2.4s'
       },
       discoverySignatures: [],
-      selectedSignatures: []
+      selectedSignatures: [],
+      activeInvestigationId: null,
+      workflow: initialWorkflow
     }));
   }, []);
 
@@ -457,6 +498,8 @@ export function useLogStore() {
 
   return {
     state,
+    diagnosticCache,
+    addToCache,
     processNewFile,
     processSourceFiles,
     processKnowledgeFiles,
@@ -464,9 +507,12 @@ export function useLogStore() {
     clearKnowledgeFiles,
     setSelectedLocation,
     setSelectedFilePath,
+    setOutputFormat,
+    setWorkflowStep,
     setDiscovering,
     setDeepDiving,
     setDiscoverySignatures,
+    setActiveInvestigationId,
     toggleSignatureSelection,
     addMessage: (msg: ChatMessage) => setState(s => ({ ...s, messages: [...s.messages, msg] })),
     updateLastMessageChunk: (chunk: string) => setState(s => {

@@ -20,8 +20,15 @@ import {
   Search,
   ArrowRight,
   Eye,
-  X
+  X,
+  Copy,
+  ExternalLink,
+  Database,
+  Book,
+  Check,
+  Share2
 } from 'lucide-react';
+import { generateJiraUrl, formatRunbook, downloadBlob } from '../utils/exportUtils';
 
 interface StructuredAnalysisRendererProps {
   report: StructuredAnalysis;
@@ -31,16 +38,12 @@ interface StructuredAnalysisRendererProps {
 export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProps> = ({ report, allChunks }) => {
   const [viewMode, setViewMode] = useState<'summary' | 'detailed'>('summary');
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
 
   const totalOccurrences = useMemo(() => 
     report.error_patterns.reduce((sum, p) => sum + p.occurrences, 0),
     [report.error_patterns]
   );
-
-  const severityColor = 
-    report.severity === 'CRITICAL' ? 'bg-red-500/10 text-red-500 border-red-500/20' :
-    report.severity === 'WARNING' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
-    'bg-blue-500/10 text-blue-500 border-blue-500/20';
 
   const severityIcon = 
     report.severity === 'CRITICAL' ? <ShieldAlert size={20} className="text-red-500" /> :
@@ -52,10 +55,75 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
     return allChunks.find(c => c.id === selectedChunkId);
   }, [selectedChunkId, allChunks]);
 
+  const handleCopySummary = () => {
+    navigator.clipboard.writeText(report.executive_summary);
+    setCopyStatus('copied');
+    setTimeout(() => setCopyStatus('idle'), 2000);
+  };
+
+  const handleExportJson = () => {
+    downloadBlob(JSON.stringify(report, null, 2), `diagnostic_report_${Date.now()}.json`, 'application/json');
+  };
+
+  const handleCopyRunbook = () => {
+    navigator.clipboard.writeText(formatRunbook(report));
+    setCopyStatus('copied');
+    setTimeout(() => setCopyStatus('idle'), 2000);
+  };
+
+  const handleOpenJira = () => {
+    window.open(generateJiraUrl(report), '_blank');
+  };
+
+  const WorkItemHub = () => (
+    <div className="bg-slate-950/40 border border-slate-800 rounded-3xl p-6 mt-8 space-y-4">
+      <div className="flex items-center justify-between mb-2">
+         <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+           <Share2 size={12} className="text-blue-500" />
+           Work Item Orchestrator
+         </h5>
+         <div className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Post-Diagnostic Actions</div>
+      </div>
+      
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <button 
+          onClick={handleCopySummary}
+          className="flex flex-col items-center gap-2 p-3 bg-slate-900 border border-slate-800 rounded-2xl hover:border-blue-500/40 transition-all group"
+        >
+          {copyStatus === 'copied' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} className="text-slate-400 group-hover:text-blue-400" />}
+          <span className="text-[9px] font-black text-slate-500 uppercase group-hover:text-slate-200">Copy Summary</span>
+        </button>
+        
+        <button 
+          onClick={handleOpenJira}
+          className="flex flex-col items-center gap-2 p-3 bg-slate-900 border border-slate-800 rounded-2xl hover:border-blue-500/40 transition-all group"
+        >
+          <ExternalLink size={14} className="text-slate-400 group-hover:text-blue-400" />
+          <span className="text-[9px] font-black text-slate-500 uppercase group-hover:text-slate-200">Jira Ticket</span>
+        </button>
+
+        <button 
+          onClick={handleExportJson}
+          className="flex flex-col items-center gap-2 p-3 bg-slate-900 border border-slate-800 rounded-2xl hover:border-blue-500/40 transition-all group"
+        >
+          <Database size={14} className="text-slate-400 group-hover:text-blue-400" />
+          <span className="text-[9px] font-black text-slate-500 uppercase group-hover:text-slate-200">Export JSON</span>
+        </button>
+
+        <button 
+          onClick={handleCopyRunbook}
+          className="flex flex-col items-center gap-2 p-3 bg-slate-900 border border-slate-800 rounded-2xl hover:border-blue-500/40 transition-all group"
+        >
+          <Book size={14} className="text-slate-400 group-hover:text-blue-400" />
+          <span className="text-[9px] font-black text-slate-500 uppercase group-hover:text-slate-200">Create Runbook</span>
+        </button>
+      </div>
+    </div>
+  );
+
   if (viewMode === 'summary') {
     return (
       <div className="bg-slate-900/40 border border-slate-800 rounded-[2rem] p-6 shadow-2xl animate-in fade-in duration-500 relative overflow-hidden group">
-        {/* Progress Background Effect */}
         <div className={`absolute top-0 left-0 w-1 h-full ${report.severity === 'CRITICAL' ? 'bg-red-500' : 'bg-amber-500'}`} />
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
@@ -97,13 +165,19 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
              <LayoutList size={14} />
              View Details
            </button>
-           <button className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-slate-700/50">
-             <History size={14} />
-             Show Timeline
+           <button 
+            onClick={handleOpenJira}
+            className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-slate-700/50"
+           >
+             <ExternalLink size={14} />
+             Create Jira
            </button>
-           <button className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">
-             <Wrench size={14} />
-             Apply Fix
+           <button 
+            onClick={handleCopyRunbook}
+            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+           >
+             <Book size={14} />
+             Runbook
            </button>
         </div>
       </div>
@@ -112,7 +186,6 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-700 max-w-full overflow-hidden">
-      {/* Detailed Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-4">
         <div className="flex items-center gap-3">
           <button 
@@ -129,7 +202,6 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
         </div>
       </div>
 
-      {/* Error Patterns Section */}
       <section className="bg-slate-900/20 border border-slate-800/60 rounded-[2.5rem] p-6 space-y-6 shadow-inner">
         <div className="flex items-center gap-3 px-2">
           <Activity size={16} className="text-blue-400" />
@@ -157,7 +229,6 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
                 </div>
               </div>
 
-              {/* Impacted Systems */}
               <div className="flex flex-wrap gap-2 mb-6">
                 {pattern.impacted_systems.map((sys, j) => (
                   <div key={j} className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center gap-2 group/sys hover:border-blue-500/30 transition-all">
@@ -167,7 +238,6 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
                 ))}
               </div>
 
-              {/* Interactive Chunk Explorer */}
               <div className="pt-4 border-t border-slate-800/50">
                  <div className="flex items-center justify-between mb-4">
                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest flex items-center gap-2">
@@ -192,22 +262,11 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
                    ))}
                  </div>
               </div>
-
-              {/* Contextual Actions */}
-              <div className="mt-6 flex gap-2 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-                 <button className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-[9px] font-black uppercase text-slate-300 rounded-lg border border-slate-700/50">
-                    Explain Logic
-                 </button>
-                 <button className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-[9px] font-black uppercase text-slate-300 rounded-lg border border-slate-700/50">
-                    Search Similar
-                 </button>
-              </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Logic Bridge Section */}
       <section className="bg-slate-900/20 border border-slate-800/60 rounded-[2.5rem] p-6 space-y-4">
         <div className="flex items-center gap-3 px-2">
           <Cpu size={16} className="text-emerald-400" />
@@ -235,7 +294,6 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
         </div>
       </section>
 
-      {/* Remediation Hub */}
       <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
          <div className="bg-blue-600/5 border border-blue-500/20 rounded-[2.5rem] p-8 shadow-xl">
             <h5 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-6 flex items-center gap-3">
@@ -260,7 +318,9 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
          </div>
       </section>
 
-      {/* Detailed View Actions */}
+      {/* Instant Action Hub */}
+      <WorkItemHub />
+
       <div className="flex justify-center pt-8">
          <button 
           onClick={() => setViewMode('summary')}
@@ -270,7 +330,6 @@ export const StructuredAnalysisRenderer: React.FC<StructuredAnalysisRendererProp
          </button>
       </div>
 
-      {/* Chunk Excerpt Modal (Drill-down Explorer) */}
       {selectedChunkId && resolvedChunks && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl animate-in fade-in duration-300">
            <div className="bg-slate-900 border border-slate-800 rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-300">

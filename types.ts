@@ -8,6 +8,16 @@ export enum Severity {
   UNKNOWN = 'UNKNOWN'
 }
 
+export type OutputFormat = 'short' | 'detailed' | 'ticket';
+
+export interface DiagnosticWorkflow {
+  discovery: 'pending' | 'active' | 'completed';
+  summary: 'pending' | 'active' | 'completed';
+  rootCause: 'pending' | 'active' | 'completed';
+  fix: 'pending' | 'active' | 'completed';
+  report: 'pending' | 'active' | 'completed';
+}
+
 export interface LogSignature {
   id: string;
   pattern: string;
@@ -35,6 +45,7 @@ export interface StructuredInferredFile {
 
 export interface StructuredAnalysis {
   severity: 'CRITICAL' | 'WARNING' | 'INFO';
+  confidence_score: number; // Percentage 0-100
   executive_summary: string;
   error_patterns: StructuredErrorPattern[];
   inferred_files: StructuredInferredFile[];
@@ -296,7 +307,8 @@ export interface ChatMessage {
   modelId?: string;
   provider?: LLMProvider;
   fixValidation?: FixValidation;
-  followUpSuggestions?: string[]; // Added for Chat/Claude style suggestions
+  followUpSuggestions?: string[];
+  confidence_score?: number;
 }
 
 export type PipelineStep = 'ingestion' | 'analysis' | 'code-sync' | 'knowledge' | 'debug';
@@ -348,6 +360,8 @@ export interface AppState {
   stats: ProcessingStats | null;
   messages: ChatMessage[];
   selectedModelId: string;
+  outputFormat: OutputFormat;
+  workflow: DiagnosticWorkflow;
   metrics: SystemMetrics;
   viewMode: 'diagnostic' | 'operator' | 'code';
   activeStep: PipelineStep;
@@ -362,4 +376,5 @@ export interface AppState {
   selectedFilePath: string | null;
   discoverySignatures: LogSignature[];
   selectedSignatures: string[];
+  activeInvestigationId: string | null;
 }
