@@ -1,0 +1,56 @@
+2026-05-20T09:00:00.001Z [INFO] [App-Shell] Starting CloudLog AI v3.1.2 build=8829...
+2026-05-20T09:00:00.045Z [INFO] [App-Shell] Platform: browser, Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)
+2026-05-20T09:00:00.088Z [DEBUG] [App-Shell] Initializing Store: useLogStore.ts
+2026-05-20T09:00:00.112Z [INFO] [Gemini-Orchestrator] Initializing GoogleGenAI client (Provider: GOOGLE)...
+2026-05-20T09:00:00.115Z [INFO] [Local-RAG-Index] Mounting in-memory vector store...
+2026-05-20T09:00:01.442Z [DEBUG] [Forensic-Worker] Spawning background worker thread... Path: /worker.js
+2026-05-20T09:00:01.445Z [FATAL] [App-Shell] Forensic Engine initialization failed: Critical Security Violation
+2026-05-20T09:00:01.446Z [FATAL] [App-Shell] Uncaught SecurityError: Failed to construct 'Worker': Script at 'https://ai.studio/worker.js' cannot be accessed from origin 'https://5omygswznavtvaan9vlf8z6rlnyx9p2rcxtbnw0xpktb76ssjj-h852644758.scf.usercontent.goog'.
+2026-05-20T09:00:01.447Z [FATAL] [App-Shell] StackTrace:
+    at useLogStore.ts:104:15
+    at commitRootImpl (react-dom.production.min.js:250:12)
+    at workLoop (react.production.min.js:12:44)
+2026-05-20T09:00:01.500Z [WARN] [App-Shell] Worker bridge blocked. Falling back to main-thread processing (Performance degradation expected for files > 10MB).
+2026-05-20T09:02:14.881Z [INFO] [UI-Router] Navigated to /ingestion. Layout: HeroIngestion
+2026-05-20T09:05:30.221Z [INFO] [Ingestion-Pipeline] User triggered file upload: cluster_forensic_dump.log (45.2 MB)
+2026-05-20T09:05:31.004Z [DEBUG] [Local-Index] Inverting index... processed=1000 lines
+2026-05-20T09:05:31.552Z [DEBUG] [Local-Index] Inverting index... processed=5000 lines
+2026-05-20T09:05:45.119Z [WARN] [Local-Index] Heap pressure detected: Browser RAM usage exceeded 512MB. Throttling ingestion.
+2026-05-20T09:07:12.004Z [ERROR] [Gemini-Service] Request to 'gemini-3-pro-preview' failed: 429 Too Many Requests
+2026-05-20T09:07:12.005Z [ERROR] [Gemini-Service] Payload: { "error": { "code": 429, "message": "Quota exceeded for model 'gemini-3-pro-preview' in project 'cloudlog-internal-01'", "status": "RESOURCE_EXHAUSTED" } }
+2026-05-20T09:07:13.119Z [INFO] [Gemini-Service] Retrying with exponential backoff (retry=1/3, delay=2000ms)...
+2026-05-20T09:07:15.552Z [INFO] [Gemini-Service] Retry successful. Analysis stream resumed for Session ID: forens-9921
+{"timestamp":"2026-05-20T09:10:00.001Z","level":"INFO","component":"UI-Renderer","msg":"React Component 'StructuredAnalysis' mounted."}
+{"timestamp":"2026-05-20T09:10:05.552Z","level":"WARN","component":"UI-Renderer","msg":"Hydration mismatch: Server rendered HTML differs from Client (div > span). Fallback to client-side."}
+{"timestamp":"2026-05-20T09:15:30.992Z","level":"DEBUG","component":"Telemetry","msg":"Syncing forensic bundle to S3 backup... Status=OK"}
+
+<--- INCIDENT DETECTED: STATE BLOAT CASCADE --->
+2026-05-20T10:28:44.992Z [INFO] [App-Shell] Auto-saving session state to LocalStorage...
+2026-05-20T10:30:00.441Z [FATAL] [Forensic-Engine] CRITICAL FAILURE: LocalStorage quota exceeded (5MB limit hit).
+2026-05-20T10:30:00.442Z [FATAL] [Forensic-Engine] Trace:
+    at Storage.setItem (<anonymous>)
+    at useLogStore.ts:55:14
+    at commitRootImpl (react-dom.production.min.js:250:12)
+2026-05-20T10:30:01.881Z [WARN] [App-Shell] Emergency Session Purge initiated to recover storage. Dropping 2,400 messages.
+
+<--- RESUMING NORMAL OPERATION --->
+2026-05-20T10:35:00.000Z [INFO] [App-Shell] System Stabilized. Storage availability: 4.8MB.
+
+--- FORENSIC SUMMARY BLOCK ---
+ESTIMATED INTERNAL ERRORS: 14
+TOP SIGNATURES:
+1. SecurityError: Failed to construct 'Worker' (Origin Mismatch) - CRITICAL
+2. 429 Too Many Requests (Gemini Quota) - TRANSIENT
+3. LocalStorage quota exceeded (State Bloat) - FATAL
+4. Hydration mismatch (React Core) - INFO
+
+SUSPECTED ROOT CAUSES:
+- Missing CORS headers or incorrect script path resolution for Web Worker when running in sandboxed SCF environments.
+- High-frequency chat history exceeding the 5MB browser storage limit for persisted state.
+- Project project 'cloudlog-internal-01' hit tier-1 RPM limits for Gemini 3 Pro.
+
+RECOMMENDED ACTIONS:
+- Implement a more robust Web Worker loader using absolute same-origin paths.
+- Add an 'auto-purge' logic for chat history when state size reaches 4MB.
+- Implement token-aware rate limiting in the GeminiService to avoid 429 cascades.
+------------------------------

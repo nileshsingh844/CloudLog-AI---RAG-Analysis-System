@@ -4,44 +4,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CloudLog AI | Advanced RAG Log Analysis</title>
+    <title>CloudLog AI | Forensic Intelligence</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg-deep: #020617;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+        }
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
-            background-color: #020617;
-            color: #f8fafc;
+            background-color: var(--bg-deep);
+            color: var(--text-primary);
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+            font-size: 17px; /* Increased base size */
+            line-height: 1.75; /* Generous line spacing */
+            letter-spacing: -0.01em;
+        }
+        h1, h2, h3, h4 {
+            letter-spacing: -0.03em;
+            line-height: 1.1;
         }
         .mono {
             font-family: 'Fira Code', monospace;
+            font-size: 0.9em;
         }
-        /* Custom scrollbar for high-end look */
+        /* Optimized reading column */
+        .reading-column {
+            max-width: 850px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+        /* Custom scrollbar - ultra minimal */
         ::-webkit-scrollbar {
-            width: 5px;
-            height: 5px;
+            width: 4px;
+            height: 4px;
         }
         ::-webkit-scrollbar-track {
             background: transparent;
         }
         ::-webkit-scrollbar-thumb {
-            background: #1e293b;
-            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
         }
         ::-webkit-scrollbar-thumb:hover {
-            background: #334155;
+            background: rgba(255, 255, 255, 0.15);
         }
-        /* Smooth transitions for workflow steps */
-        .step-transition {
-            transition: all 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+        @keyframes flow-pulse {
+            0% { transform: translateY(-100%); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: translateY(100%); opacity: 0; }
         }
-        @keyframes subtle-pulse {
-            0%, 100% { opacity: 0.8; transform: scale(1); }
-            50% { opacity: 1; transform: scale(1.05); }
+        .text-glow-blue {
+            text-shadow: 0 0 25px rgba(59, 130, 246, 0.4);
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
     </style>
 <script type="importmap">

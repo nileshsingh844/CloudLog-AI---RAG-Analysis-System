@@ -1,202 +1,372 @@
-
-// @google/genai guidelines followed: Industry-specific expert logic enabled.
-import React, { useMemo, useCallback, useEffect, useState, useRef } from 'react';
-import { useLogStore } from './store/useLogStore';
+import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
+import { useLogStore, AVAILABLE_MODELS } from './store/useLogStore';
 import { FileUpload } from './components/FileUpload';
 import { ChatWindow } from './components/ChatWindow';
+import { StatsPanel } from './components/StatsPanel';
+import { PipelineTestRunner } from './components/PipelineTestRunner';
+import { GeminiService } from './services/geminiService';
+import { 
+  Terminal, 
+  Github, 
+  Settings, 
+  PlusCircle, 
+  Cpu, 
+  Activity, 
+  LayoutGrid, 
+  Users, 
+  ShieldCheck,
+  RotateCcw,
+  RefreshCcw,
+  PanelLeft,
+  PanelRight,
+  Menu,
+  X,
+  Loader2,
+  Lock
+} from 'lucide-react';
 import { IntelligenceHub } from './components/IntelligenceHub';
+import { CodeHub } from './components/CodeHub';
+import { SmartFeatures } from './components/SmartFeatures';
+import { IndustryHub } from './components/IndustryHub';
+import { ForensicEvidencePanel } from './components/ForensicEvidencePanel';
+import { DiagnosticRoadmap } from './components/DiagnosticRoadmap';
 import { WarRoom } from './components/WarRoom';
 import { ProactiveDashboard } from './components/ProactiveDashboard';
-import { DeploymentRiskAssessor } from './components/DeploymentRiskAssessor';
-import { IntegrationHub } from './components/IntegrationHub';
-import { IndustryHub } from './components/IndustryHub';
-import { GeminiService } from './services/geminiService';
-import { PipelineStep, Severity, UserRole, Industry } from './types';
-import { Terminal, Activity, Settings, Code, CloudUpload, ShieldAlert, ArrowRight, ChevronRight, Zap, AlertTriangle, Loader2, Users2, Library, Search, MessageSquare, Waves, ShieldCheck, Boxes, Globe } from 'lucide-react';
 
-const App: React.FC = () => {
-  const { 
-    state, 
-    setUserRole,
-    setIndustry,
-    setActiveStep,
-    addHypothesis,
-    updateHypothesisStatus,
-    addAction,
-    processNewFile,
-    runDeploymentRiskCheck,
-    setSettingsOpen,
-    toggleSignatureSelection,
-    addMessage, 
-    replaceLastMessageContent,
-    setLastMessageStructuredReport,
-    finishLastMessage 
-  } = useLogStore();
+const gemini = new GeminiService();
 
-  const gemini = useMemo(() => new GeminiService(), []);
-  const [isRoleMenuOpen, setIsRoleMenuOpen] = useState(false);
-
-  const handleSendMessage = useCallback(async (query: string) => {
-    if (!state.stats) return;
-    addMessage({ id: Date.now().toString(), role: 'user', content: query, timestamp: new Date() });
-    
-    const botMsgId = (Date.now() + 1).toString();
-    addMessage({ id: botMsgId, role: 'assistant', content: '...', timestamp: new Date(), isLoading: true, modelId: state.selectedModelId });
-
-    try {
-      const stream = gemini.analyzeLogsStream(
-        state.chunks, 
-        state.searchIndex,
-        state.sourceFiles,
-        state.knowledgeFiles,
-        query, 
-        state.selectedModelId, 
-        state.messages,
-        [],
-        state.stats,
-        state.userRole,
-        state.industry
-      );
-
-      for await (const chunk of stream) {
-        if (chunk.type === 'text') replaceLastMessageContent(chunk.data);
-        else if (chunk.type === 'structured_report') setLastMessageStructuredReport(chunk.data);
-      }
-      finishLastMessage();
-    } catch (e: any) {
-      replaceLastMessageContent(`Fault: ${e.message}`);
-      finishLastMessage();
-    }
-  }, [gemini, state, addMessage, replaceLastMessageContent, setLastMessageStructuredReport, finishLastMessage]);
-
-  const PIPELINE_STEPS: { id: PipelineStep; label: string; icon: React.ReactElement }[] = [
-    { id: 'ingestion', label: '1: Ingestion', icon: <CloudUpload size={14} /> },
-    { id: 'industry', label: '2: Domain', icon: <Globe size={14} /> },
-    { id: 'analysis', label: '3: Diagnosis', icon: <Activity size={14} /> },
-    { id: 'proactive', label: '4: Sentinel', icon: <Waves size={14} /> },
-    { id: 'integrations', label: '5: Everywhere', icon: <Boxes size={14} /> }
+/**
+ * World-class Reboot Sequence Component
+ */
+const RebootOverlay = () => {
+  const [logs, setLogs] = useState<string[]>([]);
+  const sequence = [
+    "[System] TRAP: Received SRE restart signal",
+    "[Go-Sentinel] Sending SIGTERM to 4 worker nodes...",
+    "[Python-RAG] Flushing local vector index (In-Memory)...",
+    "[C++ Accelerator] Releasing CUDA memory buffers...",
+    "[System] Purging browser LocalStorage session...",
+    "[System] Finalizing forensic signal synchronization...",
+    "[System] ALL SYSTEMS OFFLINE. COLD BOOT INITIATED."
   ];
 
+  useEffect(() => {
+    sequence.forEach((line, i) => {
+      setTimeout(() => setLogs(prev => [...prev, line]), i * 200); // Reduced delay for snappiness
+    });
+  }, []);
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#020617] text-slate-200 font-sans">
-      <header className="bg-slate-900/40 backdrop-blur-2xl border-b border-slate-800/60 px-6 py-4 flex items-center justify-between sticky top-0 z-[60] shadow-2xl">
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-              <Terminal className="text-white w-6 h-6" />
-            </div>
-            <h1 className="text-lg font-black text-white italic tracking-tighter uppercase">CloudLog <span className="text-blue-500">AI</span></h1>
+    <div className="fixed inset-0 z-[1000] bg-slate-950 flex flex-col items-center justify-center p-8 font-mono select-none">
+       <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-10">
+          <div className="w-full h-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-500/20 via-transparent to-transparent animate-pulse" />
+       </div>
+       
+       <div className="w-full max-w-2xl space-y-8 relative z-10">
+          <div className="flex items-center gap-4 mb-12">
+             <div className="p-3 bg-red-600/20 rounded-2xl border border-red-500/40">
+                <RefreshCcw className="w-8 h-8 text-red-500 animate-spin" />
+             </div>
+             <div>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase">Engineering Node Reboot</h2>
+                <p className="text-xs text-red-500/60 font-black uppercase tracking-[0.4em]">Logic Level: RECYCLING</p>
+             </div>
           </div>
-          
-          <nav className="hidden lg:flex items-center gap-1.5">
-            {PIPELINE_STEPS.map((step) => (
-              <button 
-                key={step.id} 
-                onClick={() => setActiveStep(step.id)} 
-                disabled={!state.stats && step.id !== 'ingestion' && step.id !== 'integrations' && step.id !== 'industry'}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all disabled:opacity-30 ${state.activeStep === step.id ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-400'}`}
-              >
-                {step.icon}
-                <span className="text-[10px] font-black uppercase tracking-widest">{step.label.split(': ')[1]}</span>
-              </button>
-            ))}
+
+          <div className="bg-black/40 border border-white/5 rounded-3xl p-8 min-h-[300px] flex flex-col gap-2 overflow-hidden shadow-2xl relative">
+             <div className="absolute top-0 left-0 w-full h-1 bg-red-600/20 animate-[scan_2s_linear_infinite]" />
+             {logs.map((log, i) => (
+               <div key={i} className="flex gap-4 animate-in fade-in slide-in-from-left-2 duration-300">
+                  <span className="text-slate-800 select-none">[{new Date().toLocaleTimeString()}]</span>
+                  <span className={log.includes('OFFLINE') ? 'text-red-500 font-bold' : 'text-blue-400/80'}>{log}</span>
+               </div>
+             ))}
+          </div>
+
+          <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+             <div className="h-full bg-red-600 shadow-[0_0_20px_rgba(220,38,38,0.8)] animate-[grow_1.5s_ease-in-out_forwards]" style={{ width: '0%' }} />
+          </div>
+       </div>
+
+       <style>{`
+          @keyframes scan { 0% { transform: translateY(0); } 100% { transform: translateY(300px); } }
+          @keyframes grow { from { width: 0%; } to { width: 100%; } }
+       `}</style>
+    </div>
+  );
+};
+
+export default function App() {
+  const {
+    state,
+    isRestarting,
+    setIndustry,
+    processNewFile,
+    resetApp,
+    addMessage,
+    stopAnalysis,
+    addComment,
+    setInvestigationStatus,
+    finishLastMessage,
+    replaceLastMessageContent,
+    setLastMessageStructuredReport,
+    setAnalysisPhase,
+    prepareAnalysis,
+    setIsProcessing,
+    setSelectedModelId
+  } = useLogStore();
+
+  const [isIntelligenceOpen, setIsIntelligenceOpen] = useState(false);
+  const [contextDepth, setContextDepth] = useState(70);
+  const [activeView, setActiveView] = useState<'chat' | 'industry' | 'proactive' | 'war-room'>('chat');
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  
+  const [showLeftSidebar, setShowLeftSidebar] = useState(true);
+  const [showRightSidebar, setShowRightSidebar] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const hasAutoPromptedRef = useRef(false);
+
+  useEffect(() => {
+    if (state.stats && state.messages.length === 0 && !state.isProcessing && state.activeStep === 'analysis') {
+       startDiscovery();
+    }
+  }, [state.stats, state.activeStep, state.messages.length, state.isProcessing]);
+
+  useEffect(() => {
+    if (isDemoMode && 
+        state.activeStep === 'analysis' && 
+        state.messages.length > 0 && 
+        !state.messages[state.messages.length - 1].isLoading && 
+        !state.isProcessing && 
+        !hasAutoPromptedRef.current) {
+      
+      hasAutoPromptedRef.current = true;
+      setTimeout(() => {
+        handleSendMessage("Analyze the OOM failure and cascading payment timeouts. Suggest a high-fidelity patch based on the log events provided.");
+      }, 500); // Snappier auto-prompt
+    }
+  }, [state.messages.length, isDemoMode, state.isProcessing, state.activeStep]);
+
+  const startDiscovery = async () => {
+    if (!state.stats) return;
+    setIsProcessing(true);
+    addMessage({
+      id: `disc-${Date.now()}`,
+      role: 'assistant',
+      content: 'Reconstructing logic nodes...',
+      timestamp: new Date(),
+      isLoading: true,
+      analysisPhase: 'UPLOADING'
+    });
+
+    try {
+      const stream = gemini.analyzeInitialDiscoveryStream(state.stats, state.userRole, state.industry);
+      for await (const chunk of stream) {
+        if (chunk.type === 'text') replaceLastMessageContent(chunk.data);
+        if (chunk.type === 'suggestions') setSuggestions(chunk.data);
+      }
+    } catch (e) {
+      replaceLastMessageContent("Forensic node online. Patterns indexed.");
+      setSuggestions(['Summarize Failures', 'Trace Latency Spikes']);
+    } finally {
+      finishLastMessage();
+    }
+  };
+
+  const handleSendMessage = async (query: string) => {
+    if (!query.trim() || state.isProcessing) return;
+    const signal = prepareAnalysis();
+    addMessage({ id: Date.now().toString(), role: 'user', content: query, timestamp: new Date() });
+    addMessage({
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: 'Initializing Forensic Engine...',
+      timestamp: new Date(),
+      isLoading: true,
+      analysisPhase: 'PARSING' // Start here immediately
+    });
+    setIsProcessing(true);
+
+    try {
+      // PHASE UPDATES are now purely driven by the Gemini stream chunks where possible
+      const stream = gemini.analyzeLogsStream(state.chunks, query, state.selectedModelId, state.stats, state.userRole, state.industry, state.discoverySignatures, signal);
+      for await (const chunk of stream) {
+        if (chunk.type === 'phase') {
+          setAnalysisPhase(chunk.data);
+        } else if (chunk.type === 'text') {
+          setAnalysisPhase('GENERATING');
+          replaceLastMessageContent(chunk.data);
+        } else if (chunk.type === 'structured_report') {
+          setLastMessageStructuredReport(chunk.data);
+        }
+      }
+    } catch (e: any) {
+      if (e.name === 'AbortError') return;
+      replaceLastMessageContent("Forensic synthesis interrupted: " + e.message);
+    } finally {
+      finishLastMessage();
+    }
+  };
+
+  const handleTryDemo = async () => {
+    setIsDemoMode(true);
+    hasAutoPromptedRef.current = false;
+    try {
+      const response = await fetch('/demo.log');
+      const blob = await response.blob();
+      const file = new File([blob], 'demo.log', { type: 'text/plain' });
+      processNewFile([file]);
+    } catch (err) {
+      console.error("Failed to load demo log:", err);
+    }
+  };
+
+  if (isRestarting) return <RebootOverlay />;
+
+  if (!state.stats || state.activeStep === 'ingestion') {
+    return (
+      <div className="min-h-screen bg-[#020617] text-white flex flex-col items-center justify-center p-6 font-sans selection:bg-blue-500/30 overflow-hidden relative">
+        <header className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-6 sm:px-12 bg-[#020617]/50 backdrop-blur-3xl z-50 border-b border-white/[0.03]">
+          <div className="flex items-center gap-4">
+             <div className="p-1.5 bg-blue-600 rounded-lg">
+               <Terminal size={18} className="text-white" />
+             </div>
+             <h1 className="text-sm font-black tracking-tighter uppercase">CloudLog AI</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={resetApp} className="p-2 text-slate-500 hover:text-red-400 transition-all"><RefreshCcw size={16} /></button>
+          </div>
+        </header>
+
+        <div className="w-full max-w-5xl space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-1000">
+          <div className="text-center space-y-6">
+             <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/10 rounded-full border border-blue-500/20 text-blue-400">
+               <ShieldCheck size={12} />
+               <span className="text-[9px] font-black uppercase tracking-widest">Neural Pipeline v3.1</span>
+             </div>
+             <h2 className="text-5xl sm:text-7xl font-black text-white italic tracking-tighter leading-tight uppercase">
+               Analyze traces <br/><span className="text-blue-600">at logic speed.</span>
+             </h2>
+          </div>
+
+          <FileUpload 
+            onFileSelect={processNewFile} 
+            isProcessing={state.isProcessing} 
+            ingestionProgress={state.ingestionProgress} 
+            onTryDemo={handleTryDemo}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-screen flex flex-col bg-[#020617] text-white overflow-hidden selection:bg-blue-500/30">
+      <header className="h-14 flex items-center justify-between px-4 bg-[#020617] border-b border-white/[0.03] z-50 shrink-0">
+        <div className="flex items-center gap-4 lg:gap-8">
+          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => resetApp()}>
+             <Terminal size={16} className="text-blue-500" />
+             <span className="text-xs font-black italic uppercase tracking-tighter hidden sm:inline">CloudLog AI</span>
+          </div>
+          <button className="lg:hidden p-2 text-slate-400" onClick={() => setMobileMenuOpen(true)}>
+            <Menu size={20} />
+          </button>
+          <nav className="hidden lg:flex items-center gap-1">
+             <NavBtn active={activeView === 'chat'} onClick={() => setActiveView('chat')} label="Forensics" icon={<Cpu size={14} />} />
+             <NavBtn active={activeView === 'industry'} onClick={() => setActiveView('industry')} label="Sectors" icon={<LayoutGrid size={14} />} />
+             <NavBtn active={activeView === 'proactive'} onClick={() => setActiveView('proactive')} label="Sentinel" icon={<Activity size={14} />} />
+             <NavBtn active={activeView === 'war-room'} onClick={() => setActiveView('war-room')} label="War Room" icon={<Users size={14} />} />
           </nav>
         </div>
-
-        <div className="flex items-center gap-4">
-           <div className="relative">
-              <button 
-                onClick={() => setIsRoleMenuOpen(!isRoleMenuOpen)}
-                className="flex items-center gap-3 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-xl text-[10px] font-black text-slate-300 hover:text-white transition-all"
-              >
-                <Users2 size={14} className="text-blue-400" />
-                {state.userRole}
-              </button>
-              {isRoleMenuOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl z-[70] py-2 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                   {['BACKEND', 'DEVOPS', 'FRONTEND', 'PRODUCT_MANAGER'].map(role => (
-                     <button key={role} onClick={() => { setUserRole(role as UserRole); setIsRoleMenuOpen(false); }} className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase transition-all ${state.userRole === role ? 'bg-blue-600/10 text-blue-400' : 'text-slate-500 hover:bg-white/5'}`}>
-                        {role}
-                     </button>
-                   ))}
-                </div>
-              )}
-           </div>
-
-           <button onClick={() => setSettingsOpen(true)} className="p-2.5 text-slate-400 bg-slate-800/50 rounded-xl border border-slate-700 hover:text-white transition-all">
+        <div className="flex items-center gap-2 sm:gap-4">
+           <button onClick={() => setShowLeftSidebar(!showLeftSidebar)} className={`p-2 rounded-lg transition-colors hidden xl:block ${showLeftSidebar ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:bg-white/5'}`}>
+             <PanelLeft size={18} />
+           </button>
+           <button onClick={resetApp} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-all shadow-lg active:scale-95">
+              <PlusCircle size={14} /> <span className="hidden sm:inline">New investigation</span>
+           </button>
+           <button onClick={() => setShowRightSidebar(!showRightSidebar)} className={`p-2 rounded-lg transition-colors hidden 2xl:block ${showRightSidebar ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:bg-white/5'}`}>
+             <PanelRight size={18} />
+           </button>
+           <button onClick={() => setIsIntelligenceOpen(true)} className="p-2 text-slate-400 hover:text-white transition-all">
              <Settings size={18} />
            </button>
         </div>
       </header>
 
-      <main className="flex-1 w-full max-w-[1920px] mx-auto flex flex-col min-h-0 overflow-hidden">
-        {state.activeStep === 'ingestion' && (
-          <div className="flex-1 flex flex-col items-center justify-center p-12 space-y-12">
-             <div className="text-center space-y-4">
-               <h2 className="text-6xl font-black text-white italic uppercase tracking-tighter">Forensic Entry</h2>
-               <p className="text-slate-500 max-w-lg mx-auto italic">Ingest distributed log streams to activate expert domain synthesis.</p>
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+        <aside className={`fixed inset-y-0 left-0 z-40 w-80 bg-slate-950 border-r border-white/5 transition-transform duration-300 lg:relative lg:translate-x-0 ${showLeftSidebar ? 'translate-x-0' : '-translate-x-full lg:hidden'}`}>
+          <div className="h-full flex flex-col overflow-y-auto scrollbar-hide p-4 space-y-8 pb-20">
+            <button onClick={resetApp} className="flex items-center justify-center gap-2 w-full py-3 bg-slate-900 hover:bg-red-950/40 border border-white/5 rounded-xl text-[9px] font-black text-slate-500 hover:text-red-400 uppercase tracking-widest transition-all group">
+              <RotateCcw size={12} className="group-hover:rotate-180 transition-transform duration-500" />
+              Restart diagnostic node
+            </button>
+            <StatsPanel stats={state.stats} />
+            <SmartFeatures onAction={handleSendMessage} isProcessing={state.isProcessing} hasStats={!!state.stats} />
+            <CodeHub inferredFiles={state.stats?.inferredFiles || []} sourceFiles={state.sourceFiles} onUpload={() => {}} onClear={() => {}} />
+          </div>
+        </aside>
+
+        <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative overflow-hidden">
+          {activeView === 'chat' && (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <DiagnosticRoadmap workflow={state.workflow} />
+              <div className="flex-1 min-h-0">
+                 <ChatWindow messages={state.messages} onSendMessage={handleSendMessage} isProcessing={state.isProcessing} selectedModel={state.selectedModelId} suggestions={suggestions} sourceFiles={state.sourceFiles} stats={state.stats} allChunks={state.chunks} teamMembers={state.teamMembers} comments={state.comments} status={state.investigationStatus} onAddComment={addComment} onStatusChange={setInvestigationStatus} onStop={stopAnalysis} onNavigateHome={resetApp} />
+              </div>
+            </div>
+          )}
+          {activeView === 'industry' && <div className="flex-1 overflow-y-auto scrollbar-hide"><IndustryHub currentIndustry={state.industry} onSelectIndustry={setIndustry} stats={state.stats} /></div>}
+          {activeView === 'proactive' && <div className="flex-1 overflow-y-auto scrollbar-hide"><ProactiveDashboard anomalies={state.anomalies} trends={state.trends} /></div>}
+          {activeView === 'war-room' && <div className="flex-1 overflow-y-auto scrollbar-hide"><WarRoom hypotheses={state.hypotheses} actions={state.warRoomActions} userRole={state.userRole} onAddHypothesis={() => {}} onUpdateStatus={() => {}} onAddAction={() => {}} /></div>}
+        </main>
+
+        <aside className={`fixed inset-y-0 right-0 z-40 w-96 bg-slate-950/80 backdrop-blur-3xl border-l border-white/5 transition-transform duration-300 xl:relative xl:translate-x-0 ${showRightSidebar ? 'translate-x-0' : 'translate-x-full xl:hidden'}`}>
+          <div className="h-full overflow-hidden flex flex-col">
+             <div className="p-4 border-b border-white/5 flex items-center justify-between lg:hidden shrink-0">
+               <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Evidence Panel</h3>
+               <button onClick={() => setShowRightSidebar(false)} className="p-1 text-slate-500 hover:text-white"><X size={16} /></button>
              </div>
-             <div className="w-full max-w-2xl"><FileUpload onFileSelect={processNewFile} isProcessing={state.isProcessing} ingestionProgress={state.ingestionProgress} /></div>
+             <ForensicEvidencePanel stats={state.stats} logs={state.logs} activeSignature={null} allSignatures={state.discoverySignatures} />
           </div>
-        )}
+        </aside>
+      </div>
 
-        {state.activeStep === 'industry' && (
-          <div className="flex-1 overflow-y-auto scrollbar-hide">
-             <IndustryHub currentIndustry={state.industry} onSelectIndustry={setIndustry} stats={state.stats} />
-          </div>
-        )}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/95 backdrop-blur-2xl lg:hidden animate-in fade-in duration-300">
+           <div className="p-6 h-full flex flex-col">
+              <div className="flex items-center justify-between mb-12">
+                 <div className="flex items-center gap-3">
+                   <Terminal size={20} className="text-blue-500" />
+                   <span className="text-sm font-black italic uppercase tracking-tighter">CloudLog AI</span>
+                 </div>
+                 <button onClick={() => setMobileMenuOpen(false)} className="p-2 text-slate-500 hover:text-white"><X size={24} /></button>
+              </div>
+              <nav className="flex flex-col gap-6">
+                 <MobileNavBtn active={activeView === 'chat'} onClick={() => { setActiveView('chat'); setMobileMenuOpen(false); }} label="Forensics" icon={<Cpu size={20} />} />
+                 <MobileNavBtn active={activeView === 'industry'} onClick={() => { setActiveView('industry'); setMobileMenuOpen(false); }} label="Sectors" icon={<LayoutGrid size={20} />} />
+                 <MobileNavBtn active={activeView === 'proactive'} onClick={() => { setActiveView('proactive'); setMobileMenuOpen(false); }} label="Sentinel" icon={<Activity size={20} />} />
+                 <MobileNavBtn active={activeView === 'war-room'} onClick={() => { setActiveView('war-room'); setMobileMenuOpen(false); }} label="War Room" icon={<Users size={20} />} />
+              </nav>
+              <div className="mt-auto pt-8 border-t border-white/5">
+                 <button onClick={resetApp} className="w-full py-4 text-red-500 font-bold uppercase text-[10px] tracking-[0.2em]">Reset Diagnostic Node</button>
+              </div>
+           </div>
+        </div>
+      )}
 
-        {state.activeStep === 'analysis' && (
-          <div className="flex-1 flex flex-col min-h-0">
-             <ChatWindow 
-              messages={state.messages} 
-              onSendMessage={handleSendMessage} 
-              isProcessing={state.isProcessing} 
-              selectedModel={state.selectedModelId} 
-              onSelectModel={() => {}} 
-              outputFormat={state.outputFormat}
-              onSelectOutputFormat={() => {}}
-              workflow={state.workflow}
-              onOpenSettings={() => {}}
-              suggestions={[]}
-              sourceFiles={state.sourceFiles}
-              stats={state.stats}
-              allChunks={state.chunks}
-              activeInvestigationId={state.activeInvestigationId}
-              signatures={[]}
-              onClearInvestigation={() => {}}
-             />
-          </div>
-        )}
-
-        {state.activeStep === 'proactive' && (
-          <div className="flex-1 overflow-y-auto scrollbar-hide">
-             <ProactiveDashboard anomalies={state.anomalies} trends={state.trends} />
-             <div className="border-t border-slate-900/50 pt-10 pb-20">
-               <DeploymentRiskAssessor onCheckRisk={runDeploymentRiskCheck} currentRisk={state.currentDeploymentRisk} />
-             </div>
-          </div>
-        )}
-
-        {state.activeStep === 'integrations' && (
-          <div className="flex-1 overflow-y-auto scrollbar-hide">
-             <IntegrationHub />
-          </div>
-        )}
-      </main>
-
-      <footer className="bg-[#0d0f14] border-t border-slate-900 px-6 py-2.5 flex items-center justify-between shrink-0 z-50">
-         <div className="flex items-center gap-3">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest italic">{state.industry} MODULE ACTIVE</span>
-         </div>
-         <div className="flex items-center gap-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">
-            <span className="flex items-center gap-1 text-blue-400"><Waves size={10}/> Sentinel: Active</span>
-            <span className="flex items-center gap-1"><Boxes size={10}/> Channels: Ready</span>
-         </div>
-      </footer>
+      <IntelligenceHub isOpen={isIntelligenceOpen} onClose={() => setIsIntelligenceOpen(false)} selectedModelId={state.selectedModelId} onSelectModel={setSelectedModelId} onClearSession={resetApp} contextDepth={contextDepth} onContextDepthChange={setContextDepth} stats={state.stats} onUploadRequest={() => {}} />
+      <PipelineTestRunner />
     </div>
   );
-};
+}
 
-export default App;
+const NavBtn = ({ active, onClick, label, icon }: any) => (
+  <button onClick={onClick} className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}>{icon}{label}</button>
+);
+
+const MobileNavBtn = ({ active, onClick, label, icon }: any) => (
+  <button onClick={onClick} className={`flex items-center gap-4 px-6 py-4 rounded-2xl text-lg font-black uppercase tracking-widest transition-all ${active ? 'bg-blue-600 text-white shadow-xl shadow-blue-500/20' : 'text-slate-500 hover:text-white bg-slate-900 border border-white/5'}`}>{icon}{label}</button>
+);

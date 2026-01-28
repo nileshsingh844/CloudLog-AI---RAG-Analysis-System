@@ -1,6 +1,6 @@
 
-import React, { useRef, useState } from 'react';
-import { Upload, CheckCircle, Database, Shield, Zap, FileText, Loader2, Cpu, Files } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Upload, CheckCircle, Cpu, Loader2, PlayCircle, ClipboardList, FileText, Zap, Terminal, Plus, FileJson, ArrowRight } from 'lucide-react';
 
 interface FileUploadProps {
   onFileSelect: (files: File[]) => void;
@@ -8,134 +8,233 @@ interface FileUploadProps {
   ingestionProgress: number;
   fileName?: string;
   processedFiles?: string[];
+  onTryDemo?: () => void;
 }
 
-const SUPPORTED_EXTENSIONS = [
-  '.log', '.logs', '.txt', '.out', '.err', '.trace', '.debug', '.audit', '.journal', '.messages', '.syslog', '.event', '.history', '.access',
-  '.access_log', '.error_log', '.w3c', '.ncsa', '.binlog', '.slowlog', '.tlog', '.xel', '.trc', '.aud', '.ldf', '.pgsql',
-  '.evt', '.evtx', '.etl', '.wer', '.dmp', '.diagnostic', '.crash',
-  '.trc', '.qxdm', '.qmdl', '.nbiot', '.lora', '.uart', '.serial', '.can', '.nmea', '.iq', '.rtt', '.at', '.jlink', '.modem', '.canbus', '.modbus',
-  '.cloudtrail', '.cloudwatch', '.s3', '.docker', '.kube', '.pod', '.gke',
-  '.gz', '.bz2', '.xz', '.zst', '.zip', '.tar'
-].join(',');
+type TabType = 'upload' | 'paste' | 'live';
+type UploadState = 'idle' | 'hover' | 'uploading' | 'processing' | 'success' | 'ready';
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing, ingestionProgress, fileName, processedFiles }) => {
+export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing, ingestionProgress, fileName, onTryDemo }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>('upload');
+  const [localState, setLocalState] = useState<UploadState>('idle');
+  const [pasteContent, setPasteContent] = useState('');
+
+  useEffect(() => {
+    if (isProcessing) {
+      if (ingestionProgress < 100) setLocalState('uploading');
+      else setLocalState('processing');
+    } else if (fileName) {
+      setLocalState('success');
+      const t = setTimeout(() => setLocalState('ready'), 800);
+      return () => clearTimeout(t);
+    } else {
+      setLocalState('idle');
+    }
+  }, [isProcessing, fileName, ingestionProgress]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files) onFileSelect(Array.from(files));
+    if (files && files.length > 0) onFileSelect(Array.from(files));
   };
 
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
+  const handlePasteSubmit = () => {
+    if (!pasteContent.trim()) return;
+    const blob = new Blob([pasteContent], { type: 'text/plain' });
+    const file = new File([blob], 'pasted-logs.txt', { type: 'text/plain' });
+    onFileSelect([file]);
   };
 
-  const onDragLeave = () => setIsDragging(false);
-
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setLocalState('hover'); };
+  const onDragLeave = () => setLocalState('idle');
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(false);
     const files = e.dataTransfer.files;
-    if (files) onFileSelect(Array.from(files));
+    if (files && files.length > 0) onFileSelect(Array.from(files));
+    else setLocalState('idle');
   };
 
   return (
-    <div 
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      className={`relative group border-2 border-dashed rounded-[3rem] p-8 sm:p-14 transition-all duration-700 flex flex-col items-center justify-center space-y-6 sm:space-y-8 overflow-hidden
-        ${fileName ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-800 bg-slate-900/40 shadow-inner'}
-        ${isDragging ? 'border-blue-500 bg-blue-500/10 scale-[1.02] shadow-2xl shadow-blue-500/20' : 'hover:border-slate-700 hover:bg-slate-800/40'}
-      `}
-    >
-      <input 
-        type="file" 
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-        onChange={handleFileChange}
-        disabled={isProcessing}
-        accept={SUPPORTED_EXTENSIONS}
-        multiple
-        ref={fileInputRef}
-      />
-      
-      {isProcessing ? (
-        <div className="flex flex-col items-center space-y-8 w-full max-w-[340px] animate-in fade-in duration-500">
-          <div className="relative">
-            <div className="absolute inset-0 bg-blue-500/30 blur-3xl rounded-full animate-pulse"></div>
-            <div className="relative w-24 h-24 bg-slate-900 rounded-3xl border border-slate-700 flex items-center justify-center shadow-2xl overflow-hidden">
-               <Cpu className="w-10 h-10 text-blue-400" />
-               <div className="absolute inset-0 border-2 border-blue-500/20 animate-pulse rounded-3xl" />
-            </div>
-          </div>
-          
-          <div className="w-full space-y-4">
-            <div className="flex justify-between items-end">
-              <div>
-                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-1">Indexing RAG Multi-Node</p>
-                <p className="text-xs text-slate-500 font-bold italic">Cross-correlating file patterns...</p>
+    <div className="w-full max-w-3xl mx-auto space-y-6">
+      {/* Professional Tabs */}
+      <div className="flex items-center justify-center p-1.5 bg-slate-900 border border-white/[0.05] rounded-2xl w-fit mx-auto shadow-2xl backdrop-blur-3xl shrink-0">
+         {(['upload', 'paste', 'live'] as TabType[]).map((tab) => (
+           <button
+             key={tab}
+             onClick={() => setActiveTab(tab)}
+             className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center gap-3
+               ${activeTab === tab 
+                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                 : 'text-slate-500 hover:text-slate-300'}`}
+           >
+             {tab === 'upload' && <Upload size={14} />}
+             {tab === 'paste' && <ClipboardList size={14} />}
+             {tab === 'live' && <Zap size={14} />}
+             {tab}
+           </button>
+         ))}
+      </div>
+
+      {/* Primary Hero Ingestion Card - Controlled Height for Zoom Support */}
+      <div 
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        className={`relative group border-2 border-dashed rounded-[3rem] p-8 sm:p-14 lg:p-20 transition-all duration-700 flex flex-col items-center justify-center space-y-8 overflow-y-auto max-h-[65vh] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.5)] scrollbar-hide
+          ${localState === 'success' || localState === 'ready' ? 'border-emerald-500/30 bg-emerald-500/[0.02]' : 'border-white/[0.05] bg-slate-900/40 backdrop-blur-3xl'}
+          ${localState === 'hover' ? 'border-blue-600 bg-blue-600/[0.05] scale-[1.01] shadow-[0_0_80px_-20px_rgba(59,130,246,0.2)] ring-2 ring-blue-500/20' : ''}
+          ${localState === 'uploading' || localState === 'processing' ? 'border-blue-600/40 bg-slate-950' : 'hover:border-white/10'}
+        `}
+      >
+        {/* Glow Effects */}
+        <div className={`absolute -top-24 -left-24 w-64 h-64 bg-blue-600/5 blur-[120px] rounded-full transition-opacity duration-700 ${localState === 'hover' ? 'opacity-100' : 'opacity-0'}`} />
+        <div className={`absolute -bottom-24 -right-24 w-64 h-64 bg-purple-600/5 blur-[120px] rounded-full transition-opacity duration-700 ${localState === 'hover' ? 'opacity-100' : 'opacity-0'}`} />
+
+        {(localState === 'uploading' || localState === 'processing') ? (
+          <div className="flex flex-col items-center space-y-10 w-full max-w-sm animate-in fade-in zoom-in-95 duration-500 relative z-10 py-4">
+            <div className="relative">
+              <div className="absolute inset-0 bg-blue-600/20 blur-[40px] rounded-full animate-pulse"></div>
+              <div className="relative w-20 h-20 bg-slate-900 rounded-[2rem] border border-white/10 flex items-center justify-center shadow-3xl">
+                 <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
               </div>
-              <span className="text-2xl font-black text-blue-100 italic tracking-tighter">{ingestionProgress}%</span>
             </div>
-            <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden p-1 border border-slate-800/50">
-               <div 
-                className="h-full bg-gradient-to-r from-blue-700 via-blue-500 to-indigo-400 rounded-full transition-all duration-700 ease-out shadow-[0_0_20px_rgba(59,130,246,0.6)]" 
-                style={{ width: `${ingestionProgress}%` }}
-               ></div>
+            
+            <div className="w-full space-y-6 text-center">
+              <h4 className="text-2xl font-black text-white italic tracking-tight">
+                {localState === 'uploading' ? 'Streaming Signal...' : 'Mapping Logic Nodes...'}
+              </h4>
+              <div className="h-2.5 w-full bg-white/5 rounded-full overflow-hidden p-0.5 border border-white/5">
+                 <div 
+                  className="h-full bg-blue-600 rounded-full transition-all duration-300 ease-out shadow-[0_0_20px_rgba(37,99,235,0.8)]" 
+                  style={{ width: `${ingestionProgress}%` }}
+                 ></div>
+              </div>
+              <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.4em]">{ingestionProgress}% Complete</p>
             </div>
           </div>
-        </div>
-      ) : fileName ? (
-        <div className="flex flex-col items-center space-y-6 animate-in zoom-in duration-700">
-          <div className="relative">
-             <div className="absolute inset-0 bg-emerald-500/20 blur-3xl rounded-full"></div>
-             <div className="relative bg-emerald-500/10 p-7 rounded-[2rem] border border-emerald-500/30 shadow-2xl shadow-emerald-500/10">
-                <Files className="w-12 h-12 text-emerald-400" />
-             </div>
+        ) : (localState === 'success' || localState === 'ready') ? (
+          <div className="flex flex-col items-center space-y-8 animate-in zoom-in-95 duration-700 relative z-10 py-10">
+            <div className="bg-emerald-500/10 p-8 rounded-[2.5rem] border border-emerald-500/20 shadow-2xl">
+              <CheckCircle className="w-12 h-12 text-emerald-400" />
+            </div>
+            <div className="text-center space-y-2">
+              <h4 className="text-emerald-500 text-[10px] font-black uppercase tracking-[0.4em]">Signal Node Established</h4>
+              <p className="text-white font-black text-4xl tracking-tighter truncate max-w-md italic uppercase">{fileName}</p>
+            </div>
           </div>
-          <div className="text-center px-6">
-            <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-2">Cross-Log Hub Ready</h4>
-            <p className="text-slate-100 font-black text-2xl tracking-tight truncate max-w-[320px] italic uppercase">{fileName}</p>
-            {processedFiles && processedFiles.length > 1 && (
-              <div className="mt-2 flex flex-wrap justify-center gap-2">
-                {processedFiles.map((f, i) => (
-                  <span key={i} className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded text-[8px] font-bold text-slate-400">{f}</span>
-                ))}
+        ) : (
+          <div className="w-full flex flex-col items-center text-center space-y-8 relative z-10">
+            {activeTab === 'upload' && (
+              <div className="space-y-10 w-full animate-in fade-in duration-500 py-4">
+                <div className="relative inline-block group/icon">
+                  <div className={`absolute inset-0 bg-blue-600/10 blur-[80px] rounded-full transition-all duration-700 ${localState === 'hover' ? 'scale-150 bg-blue-600/20' : ''}`}></div>
+                  <div className={`relative bg-slate-900 border border-white/10 p-10 rounded-[2.5rem] shadow-2xl transition-all duration-700 ${localState === 'hover' ? 'scale-110 -translate-y-2 border-blue-500/30 shadow-[0_0_40px_rgba(59,130,246,0.3)]' : ''}`}>
+                    <Upload className={`w-12 h-12 text-white/20 transition-all duration-700 ${localState === 'hover' ? 'text-blue-500 scale-110 rotate-3' : 'group-hover/icon:text-blue-500'}`} />
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <h4 className={`text-white font-black text-3xl italic uppercase tracking-tighter leading-tight transition-all duration-700 ${localState === 'hover' ? 'scale-105 brightness-125' : ''}`}>
+                    {localState === 'hover' ? 'Drop logs anywhere' : 'Select diagnostic files'}
+                  </h4>
+                  <p className="text-slate-500 text-[15px] font-medium max-w-xs mx-auto leading-relaxed">
+                    Distributed logs, traces, or massive system dumps (.log, .json, .txt)
+                  </p>
+                </div>
+
+                <div className="flex flex-col items-center gap-6">
+                   <button 
+                     onClick={() => fileInputRef.current?.click()}
+                     className="px-14 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[1.25rem] font-black text-[12px] uppercase tracking-[0.2em] transition-all shadow-[0_15px_40px_-10px_rgba(37,99,235,0.4)] active:scale-95 group/btn"
+                   >
+                     Browse Local Files
+                     <ArrowRight size={14} className="inline ml-3 opacity-50 group-hover/btn:translate-x-1 transition-transform" />
+                   </button>
+                   <input 
+                      type="file" 
+                      className="hidden"
+                      onChange={handleFileChange}
+                      disabled={isProcessing}
+                      accept=".log,.logs,.txt,.json,.syslog"
+                      multiple
+                      ref={fileInputRef}
+                    />
+                   <div className="flex items-center gap-4 text-[9px] font-black text-slate-700 uppercase tracking-[0.3em]">
+                     <span>Support up to 5GB+</span>
+                     <div className="w-1 h-1 bg-slate-800 rounded-full" />
+                     <span>Streaming RAG Ingestion</span>
+                   </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'paste' && (
+              <div className="w-full space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500 py-4 px-4">
+                <div className="relative group/paste">
+                   <div className="absolute inset-0 bg-blue-500/5 blur-3xl rounded-[2rem] opacity-0 group-focus-within/paste:opacity-100 transition-opacity" />
+                   <textarea
+                     value={pasteContent}
+                     onChange={(e) => setPasteContent(e.target.value)}
+                     placeholder="Paste raw log output here..."
+                     className="w-full h-64 bg-slate-950 border border-white/5 rounded-[2.5rem] p-8 text-sm font-mono text-slate-300 placeholder:text-slate-800 focus:border-blue-500/30 focus:ring-0 outline-none resize-none transition-all scrollbar-hide"
+                   />
+                </div>
+                <button 
+                  onClick={handlePasteSubmit}
+                  disabled={!pasteContent.trim()}
+                  className="px-14 py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-20 text-white rounded-[1.25rem] font-black text-[12px] uppercase tracking-[0.2em] transition-all shadow-xl active:scale-95"
+                >
+                  Analyze Pasted Trace
+                </button>
+              </div>
+            )}
+
+            {activeTab === 'live' && (
+              <div className="w-full flex flex-col items-center py-10 space-y-8 animate-in fade-in duration-500">
+                 <div className="p-8 bg-slate-900 rounded-[2.5rem] border border-white/5 flex items-center justify-center">
+                   <Zap size={32} className="text-amber-500 animate-pulse" />
+                 </div>
+                 <div className="space-y-2">
+                   <h4 className="text-white font-black text-2xl italic uppercase tracking-tight">Live Sentinel Stream</h4>
+                   <p className="text-slate-500 text-sm font-medium italic">Sync directly from CLI or Kubernetes cluster</p>
+                 </div>
+                 <div className="bg-slate-950 border border-white/5 p-4 rounded-2xl font-mono text-[11px] text-blue-400/80">
+                   $ cloudlog live --stream=app-cluster
+                 </div>
+                 <button className="px-12 py-3 bg-white text-slate-950 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">
+                   Coming Soon
+                 </button>
               </div>
             )}
           </div>
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              fileInputRef.current?.click();
-            }}
-            className="px-8 py-3 bg-slate-800/60 hover:bg-slate-700 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border border-slate-700/50 mt-4 z-20 shadow-xl"
-          >
-            Add More Logs
-          </button>
+        )}
+      </div>
+
+      {/* Action Chips - Minimalist Styling */}
+      {!isProcessing && localState !== 'success' && localState !== 'ready' && (
+        <div className="flex flex-wrap justify-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-1000 delay-300 pb-4">
+           <button 
+            onClick={onTryDemo}
+            className="flex items-center gap-3 px-6 py-3 bg-white/[0.03] border border-white/[0.08] rounded-2xl hover:bg-white/[0.06] hover:border-blue-500/20 transition-all group active:scale-95"
+           >
+             <PlayCircle size={16} className="text-blue-500 group-hover:scale-110 transition-transform" />
+             <span className="text-[11px] font-black text-slate-400 group-hover:text-white uppercase tracking-widest">Try Demo Log</span>
+           </button>
+           <button 
+             onClick={() => setActiveTab('paste')}
+             className="flex items-center gap-3 px-6 py-3 bg-white/[0.03] border border-white/[0.08] rounded-2xl hover:bg-white/[0.06] hover:border-emerald-500/20 transition-all group active:scale-95"
+           >
+             <ClipboardList size={16} className="text-emerald-500 group-hover:scale-110 transition-transform" />
+             <span className="text-[11px] font-black text-slate-400 group-hover:text-white uppercase tracking-widest">Paste Logs</span>
+           </button>
+           <button 
+             onClick={() => setActiveTab('live')}
+             className="flex items-center gap-3 px-6 py-3 bg-white/[0.03] border border-white/[0.08] rounded-2xl hover:bg-white/[0.06] hover:border-amber-500/20 transition-all group active:scale-95"
+           >
+             <Zap size={16} className="text-amber-500 group-hover:scale-110 transition-transform" />
+             <span className="text-[11px] font-black text-slate-400 group-hover:text-white uppercase tracking-widest">Live Feed</span>
+           </button>
         </div>
-      ) : (
-        <>
-          <div className="relative group-hover:scale-110 transition-transform duration-700">
-            <div className="absolute inset-0 bg-blue-600/20 blur-3xl rounded-full group-hover:bg-blue-600/40 transition-colors"></div>
-            <div className="relative bg-slate-900 border border-slate-800 p-8 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-              <Files className="w-12 h-12 text-blue-500" />
-            </div>
-            <div className="absolute -bottom-3 -right-3 bg-blue-600 p-2.5 rounded-2xl border-4 border-slate-900 shadow-2xl">
-              <Upload className="w-5 h-5 text-white" />
-            </div>
-          </div>
-          <div className="text-center px-10 space-y-3">
-            <h4 className="text-slate-100 font-black text-2xl italic uppercase tracking-tighter">Diagnostic Multi-Feed</h4>
-            <p className="text-slate-500 text-sm font-medium leading-relaxed max-w-sm mx-auto">Upload multiple log files to detect <span className="text-blue-500 font-bold">cross-node correlations</span> and temporal causality.</p>
-          </div>
-          <div className="mt-4 text-[11px] text-slate-600 font-black uppercase tracking-[0.3em] animate-pulse">
-            Select multiple files to correlate
-          </div>
-        </>
       )}
     </div>
   );

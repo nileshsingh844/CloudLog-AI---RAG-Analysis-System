@@ -153,7 +153,6 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[300px] overflow-y-auto scrollbar-hide pr-2">
-                       {/* FIX: Use optional chaining and default array to prevent mapping issues */}
                        {(stats.referencedFiles || []).map((rf, i) => (
                          <div key={i} className="flex items-center justify-between p-3 bg-slate-900/60 border border-slate-800 rounded-xl group">
                             <div className="flex items-center gap-3 min-w-0">
@@ -161,7 +160,7 @@ export const IntelligenceHub: React.FC<IntelligenceHubProps> = memo(({
                                   {rf.uploaded ? <CheckCircle2 size={14} className="text-emerald-400" /> : <FileCode size={14} className="text-red-400" />}
                                </div>
                                <div className="truncate">
-                                  <p className={`text-[11px] font-bold truncate ${rf.uploaded ? 'text-slate-200' : 'text-slate-400'}`}>{rf.path.split(/[/\\]/).pop()}</p>
+                                  <p className={`text-[11px] font-bold truncate ${rf.uploaded ? 'text-slate-200' : 'text-slate-400'}`}>{(rf.path || 'unknown').split(/[/\\]/).pop()}</p>
                                   <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">{rf.mentions} Citations • Max: {rf.severityMax}</p>
                                </div>
                             </div>

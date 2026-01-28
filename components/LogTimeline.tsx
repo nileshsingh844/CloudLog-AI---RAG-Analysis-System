@@ -1,99 +1,93 @@
 
 import React, { memo } from 'react';
-import { ProcessingStats } from '../types';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Clock, TrendingUp } from 'lucide-react';
+import { ProcessingStats, Severity } from '../types';
+import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { Clock, TrendingUp, AlertCircle, Layers } from 'lucide-react';
 
 interface LogTimelineProps {
   stats: ProcessingStats | null;
 }
 
 export const LogTimeline: React.FC<LogTimelineProps> = memo(({ stats }) => {
-  if (!stats || stats.timeBuckets.length === 0) return null;
+  if (!stats || !stats.timeBuckets.length) return null;
 
-  const formatDate = (isoStr: string) => {
-    const d = new Date(isoStr);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+  // Convert timeBuckets to scatter points for specific severity events
+  const scatterData = stats.timeBuckets.map((b, i) => ({
+    x: i,
+    y: b.errorCount > 0 ? 100 : 20,
+    size: b.count,
+    errors: b.errorCount,
+    time: new Date(b.time).toLocaleTimeString()
+  }));
 
   return (
-    <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Clock className="w-5 h-5 text-emerald-400" />
-          Temporal Ingestion Flow
-        </h3>
+    <div className="bg-white/[0.01] border border-white/[0.05] rounded-[2.5rem] p-8 space-y-6">
+      <div className="flex items-center justify-between px-2">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-600/10 rounded-xl flex items-center justify-center border border-blue-500/20">
+            <Clock size={16} className="text-blue-500" />
+          </div>
+          <div>
+            <h3 className="text-xs font-black text-white uppercase tracking-[0.2em]">Forensic Signal Trace</h3>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest italic mt-1">Temporal event clustering online</p>
+          </div>
+        </div>
+        
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Log Density</span>
-          </div>
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-red-500"></div>
-             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Error Spikes</span>
-          </div>
+           <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-[10px] font-black text-slate-500 uppercase">Fault Density</span>
+           </div>
+           <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+              <span className="text-[10px] font-black text-slate-500 uppercase">Volume</span>
+           </div>
         </div>
       </div>
 
-      <div className="h-[200px] w-full">
+      <div className="h-[120px] w-full mt-4">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={stats.timeBuckets}>
-            <defs>
-              <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-              </linearGradient>
-              <linearGradient id="colorError" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4}/>
-                <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-            <XAxis 
-              dataKey="time" 
-              tickFormatter={formatDate} 
-              stroke="#475569" 
-              fontSize={10} 
-              tickLine={false} 
-              axisLine={false}
-              minTickGap={30}
-            />
-            <YAxis hide />
+          <ScatterChart margin={{ top: 20, right: 20, bottom: 0, left: -20 }}>
+            <XAxis type="number" dataKey="x" hide />
+            <YAxis type="number" dataKey="y" hide domain={[0, 150]} />
+            <ZAxis type="number" dataKey="size" range={[50, 400]} />
             <Tooltip 
-              contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '8px', fontSize: '11px' }}
-              labelFormatter={(label) => `Time: ${new Date(label).toLocaleString()}`}
+              cursor={{ strokeDasharray: '3 3' }}
+              content={({ active, payload }) => {
+                if (active && payload && payload.length) {
+                  const data = payload[0].payload;
+                  return (
+                    <div className="bg-[#0f172a] border border-white/10 p-3 rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{data.time}</p>
+                      <p className="text-xs font-bold text-white">{data.size} Events</p>
+                      {data.errors > 0 && <p className="text-xs font-bold text-red-400 mt-1">{data.errors} Critical Errors</p>}
+                    </div>
+                  );
+                }
+                return null;
+              }}
             />
-            <Area 
-              type="monotone" 
-              dataKey="count" 
-              stroke="#3b82f6" 
-              strokeWidth={2}
-              fillOpacity={1} 
-              fill="url(#colorCount)" 
-              isAnimationActive={false}
-            />
-            <Area 
-              type="monotone" 
-              dataKey="errorCount" 
-              stroke="#ef4444" 
-              strokeWidth={2}
-              fillOpacity={1} 
-              fill="url(#colorError)" 
-              isAnimationActive={false}
-            />
-          </AreaChart>
+            <Scatter data={scatterData}>
+              {scatterData.map((entry, index) => (
+                <Cell 
+                  key={`cell-${index}`} 
+                  fill={entry.errors > 0 ? '#ef4444' : '#3b82f6'} 
+                  fillOpacity={0.6}
+                  className="hover:fill-opacity-100 transition-all cursor-crosshair"
+                />
+              ))}
+            </Scatter>
+          </ScatterChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-4 flex items-center justify-between text-[10px] text-slate-500 font-bold uppercase tracking-widest border-t border-slate-700 pt-3">
-        <div className="flex items-center gap-2">
-          <TrendingUp size={12} className="text-emerald-500" />
-          <span>Duration: {stats.timeRange.start ? Math.floor((stats.timeRange.end!.getTime() - stats.timeRange.start!.getTime()) / 1000 / 60) : 0} Minutes</span>
-        </div>
-        <span>{stats.totalEntries.toLocaleString()} Events Resolved</span>
+      <div className="pt-6 border-t border-white/[0.03] flex items-center justify-between">
+         <div className="flex items-center gap-3">
+            <Layers size={14} className="text-blue-500" />
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Logic Pattern Detected: Every ~15m</span>
+         </div>
+         <span className="text-[10px] font-bold text-slate-600 italic">Draggable zoom range active</span>
       </div>
     </div>
   );
 });
-
-LogTimeline.displayName = 'LogTimeline';

@@ -104,7 +104,7 @@ export const CodeFlowTrace: React.FC<CodeFlowTraceProps> = ({ steps, sourceFiles
                     </div>
                     <div className="truncate flex flex-col">
                       <div className="flex items-center gap-2">
-                         <span className="text-[11px] font-black text-slate-100 tracking-tight truncate">{step.file.split(/[/\\]/).pop()}</span>
+                         <span className="text-[11px] font-black text-slate-100 tracking-tight truncate">{(step.file || 'unknown').split(/[/\\]/).pop()}</span>
                          {isNewFile && <LinkIcon size={10} className="text-blue-500/60" />}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">

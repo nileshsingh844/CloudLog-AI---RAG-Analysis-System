@@ -9,42 +9,27 @@ export enum Severity {
 }
 
 export type Industry = 'GENERAL' | 'ECOMMERCE' | 'FINTECH' | 'SAAS' | 'GAMING' | 'HEALTHCARE';
-
 export type UserRole = 'DEVOPS' | 'BACKEND' | 'FRONTEND' | 'PRODUCT_MANAGER';
-
 export type TechLayer = 'FRONTEND' | 'BACKEND' | 'DATABASE' | 'INFRASTRUCTURE' | 'UNKNOWN';
-
 export type OutputFormat = 'short' | 'detailed' | 'ticket';
+export type InvestigationStatus = 'DRAFT' | 'ACTIVE_WAR_ROOM' | 'RESOLVED' | 'ARCHIVED';
 
-export interface SourceLocation {
-  filePath: string;
-  line: number;
+// Added missing types used in various components and services to resolve export errors
+export interface SearchIndex {
+  id: string;
 }
 
 export interface FileInfo {
-  originalName: string;
-  extension: string;
   format: string;
-  compression: string | null;
-  parserUsed: string;
-  isBinary: boolean;
   category: string;
+  parserUsed: string;
 }
 
-export interface TimeBucket {
-  time: string;
-  count: number;
-  errorCount: number;
-}
-
-export interface ModelOption {
+export interface KnowledgeFile {
   id: string;
   name: string;
-  description: string;
-  capabilities: string[];
+  type: string;
 }
-
-export type LLMProvider = 'google';
 
 export interface SystemMetrics {
   totalQueries: number;
@@ -55,17 +40,37 @@ export interface SystemMetrics {
   rateLimitHits: number;
 }
 
+export type LLMProvider = 'google' | 'openai' | 'anthropic';
+
+export interface TestReport {
+  throughput: string;
+  compressionRatio: string;
+  ragAccuracy: string;
+  loadTime: string;
+}
+
+export interface RegressiveReport {
+  benchmarks: {
+    indexingSpeed: string;
+    p95Latency: string;
+    memoryEfficiency: string;
+    tokenCoverage: string;
+  };
+  testCases: {
+    name: string;
+    status: 'passed' | 'failed' | 'running';
+    category: string;
+    details: string;
+    duration: string;
+  }[];
+}
+
 export interface CodeFlowStep {
   file: string;
   line: number;
   method?: string;
   description: string;
   variableState?: Record<string, any>;
-}
-
-export interface UnitTest {
-  name: string;
-  code: string;
 }
 
 export interface CodeFix {
@@ -76,164 +81,109 @@ export interface CodeFix {
   explanation: string;
 }
 
+export interface UnitTest {
+  code: string;
+}
+
 export interface DebugSolution {
   id: string;
   strategy: string;
   rootCause: string;
   confidence: number;
   fixes: CodeFix[];
-  unitTests?: UnitTest[];
   bestPractices: string[];
+  unitTests: UnitTest[];
 }
 
 export interface AdvancedAnalysis {
-  patterns: LogSignature[];
-  correlations: any[];
-  bottlenecks: any[];
-  securityInsights: any[];
+  patterns: {
+    signature: string;
+    severity: Severity;
+    count: number;
+    trend: 'increasing' | 'decreasing' | 'stable';
+    example: string;
+  }[];
+  correlations: {
+    sourceEvent: string;
+    triggeredEvent: string;
+    causalLink: string;
+    timeDeltaMs: number;
+  }[];
+  bottlenecks: {
+    operation: string;
+    impact: 'CRITICAL' | 'WARNING' | 'INFO';
+    p95LatencyMs: number;
+  }[];
+  securityInsights: {
+    type: string;
+    description: string;
+    remediation: string;
+  }[];
   memoryInsights: string[];
 }
 
 export interface ExportData {
   stats: ProcessingStats | null;
   messages: ChatMessage[];
-  solutions: DebugSolution[];
+  solutions?: DebugSolution[];
   sourceFiles: CodeFile[];
   timestamp: string;
-}
-
-export interface Hypothesis {
-  id: string;
-  theory: string;
-  author: string;
-  status: 'investigating' | 'confirmed' | 'ruled_out';
-  evidence_ids: string[];
-}
-
-export interface WarRoomAction {
-  id: string;
-  label: string;
-  assignee: UserRole;
-  status: 'todo' | 'in_progress' | 'done';
-}
-
-export interface ResolvedIncident {
-  id: string;
-  title: string;
-  project: string;
-  date: string;
-  rootCause: string;
-  resolution: string;
-  tags: string[];
-}
-
-export interface AnomalyAlert {
-  id: string;
-  type: 'latency' | 'error_rate' | 'resource';
-  severity: Severity;
-  message: string;
-  predictedImpact: string;
-  suggestedAction: string;
-  timestamp: Date;
-}
-
-export interface PerformanceTrend {
-  metric: string;
-  values: { date: string; value: number }[];
-  status: 'stable' | 'degrading' | 'improving';
-  forecast: string;
-}
-
-export interface DeploymentRisk {
-  score: number; // 0-10
-  level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  findings: { type: 'code' | 'migration' | 'dependency'; message: string; severity: 'low' | 'medium' | 'high' }[];
-  recommendation: string;
-}
-
-export interface DiagnosticWorkflow {
-  discovery: 'pending' | 'active' | 'completed';
-  summary: 'pending' | 'active' | 'completed';
-  rootCause: 'pending' | 'active' | 'completed';
-  fix: 'pending' | 'active' | 'completed';
-  report: 'pending' | 'active' | 'completed';
 }
 
 export interface WizardStep {
   id: string;
   label: string;
-  status: 'pending' | 'active' | 'completed' | 'failed';
   detail: string;
+  layer: TechLayer;
   command?: string;
-  layer: TechLayer;
-}
-
-export interface VerificationProtocol {
-  strategy: string;
-  scripts: string[];
-  metricsToMonitor: string[];
-  successCriteria: string;
-}
-
-export interface CausalityLink {
-  timestamp: Date;
-  layer: TechLayer;
-  tech: string;
-  message: string;
-  logicImpact: string;
 }
 
 export interface DiagnosticWizardPlan {
   wizardType: string;
   detectedLayer: TechLayer;
   steps: WizardStep[];
-  causalityChain: CausalityLink[];
-  verification: VerificationProtocol;
+  causalityChain: {
+    layer: TechLayer;
+    tech: string;
+    message: string;
+    logicImpact: string;
+  }[];
+  verification: {
+    strategy: string;
+    scripts: string[];
+    metricsToMonitor: string[];
+  };
 }
 
-export interface LogSignature {
+export interface DeploymentRisk {
+  score: number;
+  level: 'CRITICAL' | 'HIGH' | 'LOW';
+  recommendation: string;
+  findings: {
+    type: 'migration' | 'code' | 'config';
+    message: string;
+    severity: 'high' | 'medium' | 'low';
+  }[];
+}
+
+export interface HeatmapPoint {
+  hour: number;
+  day: string;
+  intensity: number;
+}
+
+export interface DiffChunk {
+  startLine: number;
+  original: string;
+  suggested: string;
+}
+
+export interface TestResult {
   id: string;
-  pattern: string;
-  description: string;
-  count: number;
-  severity: Severity;
-  sample: string;
-  impacted_systems: string[];
-  trend?: 'increasing' | 'decreasing' | 'stable';
-}
-
-export interface StructuredAnalysis {
-  severity: 'CRITICAL' | 'WARNING' | 'INFO';
-  confidence_score: number;
-  executive_summary: string;
-  error_patterns: any[];
-  inferred_files: any[];
-  root_cause_hypothesis: string;
-  suggested_actions: string[];
-  wizardPlan?: DiagnosticWizardPlan;
-  user_impact_percent?: number;
-  hypotheses?: string[];
-  industry_metrics?: Record<string, any>;
-}
-
-export interface ProcessingStats {
-  totalEntries: number;
-  uniqueEntries: number;
-  severities: Record<Severity, number>;
-  timeRange: { start: Date | null; end: Date | null };
-  timeBuckets: TimeBucket[];
-  fileSize: number;
-  fileName: string;
-  chunkCount: number;
-  uniqueChunks: number;
-  fileInfo?: FileInfo;
-  inferredFiles: string[];
-  referencedFiles: any[];
-  processedFiles: string[];
-  crossLogPatterns: number;
-  detectedStack: string[];
-  temporalChains?: any[];
-  industryMatch?: Industry;
+  name: string;
+  status: 'passed' | 'failed' | 'running' | 'idle';
+  message?: string;
+  duration?: number;
 }
 
 export interface LogEntry {
@@ -247,11 +197,101 @@ export interface LogEntry {
     hasStackTrace: boolean;
     signature: string;
     layer: TechLayer;
-    industryTags?: string[];
     tenantId?: string;
     transactionId?: string;
-    [key: string]: any;
   };
+  sourceFile?: string;
+}
+
+export interface ForensicComment {
+  id: string;
+  author: string;
+  role: UserRole;
+  content: string;
+  timestamp: Date;
+  targetId: string;
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  role: UserRole;
+  status: 'active' | 'away' | 'focus';
+  avatarColor: string;
+}
+
+export interface TimelineEvent {
+  time: string;
+  event: string;
+  status?: string;
+  component?: string;
+  correlation?: string;
+  details?: string;
+}
+
+export interface IncidentReport {
+  id: string;
+  timestamp: string;
+  severity: 'CRITICAL' | 'WARNING' | 'INFO';
+  status: string;
+  confidence_score: number;
+  user_impact_percent: number;
+  analyst_persona: string;
+  affected_components: string[];
+  root_cause_analysis: {
+    primary_failure: string;
+    error_signature: string;
+    mechanism: string;
+    description: string;
+  };
+  forensic_timeline: TimelineEvent[];
+  remediation_plan: {
+    immediate_action: string;
+    steps: string[];
+  };
+  high_fidelity_patch: {
+    configuration_changes: {
+      jvm_args?: string[];
+      kubernetes_resources?: {
+        limits: { memory: string; cpu: string };
+        requests: { memory: string; cpu: string };
+      };
+    };
+    resiliency_pattern: {
+      strategy: string;
+      target: string;
+      rationale: string;
+    };
+  };
+}
+
+export interface StructuredAnalysis {
+  incident_report: IncidentReport;
+}
+
+export interface ProcessingStats {
+  totalEntries: number;
+  uniqueEntries: number;
+  severities: Record<Severity, number>;
+  timeRange: { start: Date | null; end: Date | null };
+  timeBuckets: TimeBucket[];
+  fileSize: number;
+  fileName: string;
+  chunkCount: number;
+  uniqueChunks: number;
+  detectedStack: string[];
+  industryMatch?: Industry;
+  processedFiles: string[];
+  inferredFiles: string[];
+  crossLogPatterns: number;
+  temporalChains?: { events: LogEntry[] }[];
+  fileInfo?: FileInfo;
+  referencedFiles?: {
+    path: string;
+    uploaded: boolean;
+    mentions: number;
+    severityMax: Severity;
+  }[];
 }
 
 export interface CodeFile {
@@ -259,30 +299,7 @@ export interface CodeFile {
   content: string;
   language: string;
   size: number;
-  markers?: any[];
-}
-
-export interface KnowledgeFile {
-  id: string;
-  name: string;
-  content: string;
-  type: 'runbook' | 'documentation' | 'policy';
-  size: number;
-}
-
-export interface SearchIndex {
-  invertedIndex: Map<string, Set<string>>;
-  termWeights: Map<string, number>;
-}
-
-export interface LogChunk {
-  id: string;
-  content: string;
-  entries: LogEntry[];
-  tokenCount: number;
-  signature: string;
-  occurrenceCount: number;
-  timeRange: { start: Date | null; end: Date | null };
+  markers?: { line: number; severity: string; message: string }[];
 }
 
 export interface ChatMessage {
@@ -290,17 +307,88 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  sources?: string[];
   structuredReport?: StructuredAnalysis;
   isLoading?: boolean;
   modelId?: string;
-  followUpSuggestions?: string[];
-  analysisSteps?: CodeFlowStep[];
-  debugSolutions?: DebugSolution[];
-  confidence_score?: number;
+  analysisPhase?: 'UPLOADING' | 'PARSING' | 'DETECTING' | 'SOLVING' | 'GENERATING';
 }
 
-export type PipelineStep = 'ingestion' | 'analysis' | 'code-sync' | 'knowledge' | 'debug' | 'war-room' | 'proactive' | 'integrations' | 'industry';
+export type PipelineStep = 'ingestion' | 'analysis' | 'proactive';
+
+export interface LogSignature {
+  id: string;
+  pattern: string;
+  count: number;
+  severity: Severity;
+  description: string;
+  sample: string;
+}
+
+export interface Hypothesis {
+  id: string;
+  theory: string;
+  author: string;
+  status: 'confirmed' | 'ruled_out' | 'active';
+  timestamp: Date;
+}
+
+export interface WarRoomAction {
+  id: string;
+  label: string;
+  assignee: UserRole;
+  status: 'pending' | 'completed';
+}
+
+export interface ResolvedIncident {
+  id: string;
+  title: string;
+  solution: string;
+  resolvedAt: Date;
+}
+
+export interface DiagnosticWorkflow {
+  discovery: 'pending' | 'active' | 'completed';
+  summary: 'pending' | 'active' | 'completed';
+  rootCause: 'pending' | 'active' | 'completed';
+  fix: 'pending' | 'active' | 'completed';
+  report: 'pending' | 'active' | 'completed';
+}
+
+export interface ModelOption {
+  id: string;
+  name: string;
+  description: string;
+  capabilities: string[];
+}
+
+export interface SourceLocation {
+  filePath: string;
+  line: number;
+}
+
+export interface AnomalyAlert {
+  id: string;
+  timestamp: Date;
+  severity: Severity;
+  type: string;
+  message: string;
+  predictedImpact: string;
+  suggestedAction: string;
+}
+
+export interface PerformanceTrend {
+  metric: string;
+  values: { timestamp: Date; value: number }[];
+  status: 'improving' | 'degrading' | 'stable';
+  forecast: string;
+}
+
+export interface AppliedFix {
+  fixId: string;
+  appliedAt: Date;
+  status: 'applied' | 'rolled_back' | 'verified';
+  snapshot: string;
+}
 
 export interface AppState {
   userRole: UserRole;
@@ -311,8 +399,6 @@ export interface AppState {
   logs: LogEntry[];
   chunks: LogChunk[];
   sourceFiles: CodeFile[];
-  knowledgeFiles: KnowledgeFile[];
-  searchIndex: SearchIndex | null;
   stats: ProcessingStats | null;
   messages: ChatMessage[];
   selectedModelId: string;
@@ -328,30 +414,23 @@ export interface AppState {
   selectedLocation: SourceLocation | null;
   anomalies: AnomalyAlert[];
   trends: PerformanceTrend[];
+  appliedFixes: AppliedFix[];
+  comments: ForensicComment[];
+  teamMembers: TeamMember[];
+  investigationStatus: InvestigationStatus;
+  // Added missing fields used in store initialization and components
+  knowledgeFiles: KnowledgeFile[];
+  searchIndex: SearchIndex | null;
   currentDeploymentRisk: DeploymentRisk | null;
 }
 
-export interface TestReport {
-  throughput: string;
-  compressionRatio: string;
-  ragAccuracy: string;
-  loadTime: string;
+export interface LogChunk {
+  id: string;
+  content: string;
 }
 
-export interface TestCase {
-  name: string;
-  category: string;
-  details: string;
-  status: 'running' | 'passed' | 'failed';
-  duration: string;
-}
-
-export interface RegressiveReport {
-  benchmarks: {
-    indexingSpeed: string;
-    p95Latency: string;
-    memoryEfficiency: string;
-    tokenCoverage: string;
-  };
-  testCases: TestCase[];
+export interface TimeBucket {
+  time: string;
+  count: number;
+  errorCount: number;
 }

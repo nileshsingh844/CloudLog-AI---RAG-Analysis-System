@@ -25,7 +25,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ file, selectedLine }) =>
     }
   };
 
-  const lines = file.content.split('\n');
+  const lines = (file.content || '').split('\n');
   const errorMarkers = React.useMemo(() => 
     [...(file.markers || [])].sort((a, b) => a.line - b.line),
     [file.markers]
@@ -40,8 +40,8 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ file, selectedLine }) =>
             <FileCode size={14} className="text-blue-400" />
           </div>
           <div className="truncate">
-            <h3 className="text-xs font-black text-slate-100 tracking-tight truncate uppercase italic">{file.path.split(/[/\\]/).pop()}</h3>
-            <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest">{file.path}</p>
+            <h3 className="text-xs font-black text-slate-100 tracking-tight truncate uppercase italic">{(file.path || 'unknown').split(/[/\\]/).pop()}</h3>
+            <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest">{file.path || 'Unknown Path'}</p>
           </div>
         </div>
         
@@ -92,7 +92,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ file, selectedLine }) =>
                   scrollToLine(m.line);
                 }}
                 className={`absolute w-full h-1 bg-red-500 cursor-pointer hover:scale-x-[3] transition-transform z-20 shadow-[0_0_5px_rgba(239,68,68,0.5)] ${activeErrorIdx === idx ? 'scale-x-[4] ring-1 ring-white' : ''}`}
-                style={{ top: `${((m.line - 1) / lines.length) * 100}%` }}
+                style={{ top: `${((m.line - 1) / Math.max(1, lines.length)) * 100}%` }}
                 title={`Line ${m.line}: ${m.message}`}
               />
             ))}

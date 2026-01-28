@@ -34,7 +34,8 @@ export const WarRoom: React.FC<WarRoomProps> = ({ hypotheses, actions, userRole,
          
          <div className="flex gap-4">
             <div className="bg-slate-950/50 border border-slate-800 px-6 py-3 rounded-2xl flex flex-col items-center">
-               <span className="text-xl font-black text-white italic">{analysis?.user_impact_percent || 0}%</span>
+               {/* Fixed property access: StructuredAnalysis contains incident_report */}
+               <span className="text-xl font-black text-white italic">{analysis?.incident_report?.user_impact_percent || 0}%</span>
                <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">User Impact</span>
             </div>
             <div className="bg-slate-950/50 border border-slate-800 px-6 py-3 rounded-2xl flex flex-col items-center">
