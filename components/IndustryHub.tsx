@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Industry, ProcessingStats } from '../types';
 import { 
@@ -13,16 +12,18 @@ import {
   BarChart3, 
   Search,
   Activity,
-  Package
+  Package,
+  ChevronLeft
 } from 'lucide-react';
 
 interface IndustryHubProps {
   currentIndustry: Industry;
   onSelectIndustry: (ind: Industry) => void;
   stats: ProcessingStats | null;
+  onBack: () => void;
 }
 
-export const IndustryHub: React.FC<IndustryHubProps> = ({ currentIndustry, onSelectIndustry, stats }) => {
+export const IndustryHub: React.FC<IndustryHubProps> = ({ currentIndustry, onSelectIndustry, stats, onBack }) => {
   const industries: { id: Industry; label: string; icon: any; color: string; desc: string; focus: string[] }[] = [
     { id: 'ECOMMERCE', label: 'E-Commerce', icon: <ShoppingBag />, color: 'blue', desc: 'Transaction flow & payment integrity specialist.', focus: ['Checkout Latency', 'Gateway Sync', 'SKU Conflicts'] },
     { id: 'FINTECH', label: 'FinTech', icon: <ShieldCheck />, color: 'emerald', desc: 'PCI-DSS & Audit trail reconciliation engine.', focus: ['Fraud Patterns', 'Ledger Integrity', 'KYC Flow'] },
@@ -34,6 +35,16 @@ export const IndustryHub: React.FC<IndustryHubProps> = ({ currentIndustry, onSel
 
   return (
     <div className="p-8 space-y-10 animate-in fade-in duration-700 max-w-6xl mx-auto pb-32">
+      <div className="flex justify-start">
+        <button 
+          onClick={onBack}
+          className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-white/5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+        >
+          <ChevronLeft size={14} />
+          Back to Forensics
+        </button>
+      </div>
+      
       <div className="text-center space-y-4">
         <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 rounded-full border border-emerald-500/20 text-emerald-400 shadow-xl">
            <Search size={14} />

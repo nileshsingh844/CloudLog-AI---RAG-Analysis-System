@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { AnomalyAlert, PerformanceTrend, Severity } from '../types';
 import { 
@@ -13,18 +12,30 @@ import {
   ArrowRight,
   Sparkles,
   BarChart3,
-  Waves
+  Waves,
+  ChevronLeft
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 interface ProactiveDashboardProps {
   anomalies: AnomalyAlert[];
   trends: PerformanceTrend[];
+  onBack: () => void;
 }
 
-export const ProactiveDashboard: React.FC<ProactiveDashboardProps> = ({ anomalies, trends }) => {
+export const ProactiveDashboard: React.FC<ProactiveDashboardProps> = ({ anomalies, trends, onBack }) => {
   return (
     <div className="p-8 space-y-10 animate-in fade-in duration-700 max-w-full overflow-hidden pb-24">
+      <div className="flex justify-start">
+        <button 
+          onClick={onBack}
+          className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-white/5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+        >
+          <ChevronLeft size={14} />
+          Back to Forensics
+        </button>
+      </div>
+
       {/* Hero Header */}
       <div className="bg-[#0f172a] border border-blue-500/20 rounded-[2.5rem] p-10 flex flex-col sm:flex-row sm:items-center justify-between gap-8 shadow-2xl relative overflow-hidden group">
          <div className="absolute inset-0 bg-gradient-to-r from-blue-600/5 to-purple-600/5 opacity-50" />
@@ -183,13 +194,3 @@ const HealthIndex = ({ score }: { score: number }) => (
      </div>
   </div>
 );
-
-// Add keyframes to tailwind
-const style = document.createElement('style');
-style.innerHTML = `
-@keyframes wave {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
-}
-`;
-document.head.appendChild(style);

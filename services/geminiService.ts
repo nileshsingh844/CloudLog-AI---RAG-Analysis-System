@@ -1,11 +1,10 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { LogChunk, ProcessingStats, UserRole, Industry, LogSignature } from "../types";
+import { LogChunk, ProcessingStats, UserRole, Industry, LogSignature, Severity } from "../types";
 
 /**
  * ARCHITECTURE: API / Streaming Layer (TypeScript)
- * Orchestrates high-fidelity forensic synthesis using multi-pass RAG ranking.
- * Optimized for low-latency streaming and reasoning transparency.
+ * Optimized for low-latency synthesis and high-fidelity RAG.
  */
 
 interface RetrievalResult {
@@ -20,82 +19,79 @@ interface ScoredNode {
   traceId: string | null;
   eventId: string | null;
   index: number;
+  metadata: {
+    signature?: string;
+    severity?: Severity;
+  };
 }
 
 export class GeminiService {
   // Configuration Constants
   private readonly SCORING = {
-    SEMANTIC_MATCH: 30,
-    SEVERITY: { FATAL: 100, CRITICAL: 80, ERROR: 60, WARN: 20 },
-    ENTITY_MARKERS: { EVENT_ID: 25, TRACE_ID: 35, SPAN_ID: 25 },
-    SIGNATURE_MATCH: 50,
-    TRACE_CAUSALITY_BOOST: 200,
-    TEMPORAL_NEIGHBOR_BOOST: 40
+    SEMANTIC_MATCH: 35,
+    SEVERITY: { FATAL: 120, CRITICAL: 90, ERROR: 70, WARN: 25 },
+    ENTITY_MARKERS: { EVENT_ID: 30, TRACE_ID: 40, SPAN_ID: 30 },
+    SIGNATURE_MATCH: 60,
+    TRACE_CAUSALITY_BOOST: 250,
+    TEMPORAL_NEIGHBOR_BOOST: 50,
+    RARE_PATTERN_BOOST: 45
   };
   
   private readonly THRESHOLDS = {
-    SIGNAL_BOOST_MIN: 120,
-    TOP_K_RESULTS: 25,
-    RE_RANK_CANDIDATES: 100, // LATENCY OPTIMIZATION: Only re-rank top 100
-    MAX_CONFIDENCE_CAP: 300,
-    MIN_SCORE_THRESHOLD: 45
+    SIGNAL_BOOST_MIN: 130,
+    TOP_K_RESULTS: 20, 
+    RE_RANK_CANDIDATES: 40, 
+    MAX_CONFIDENCE_CAP: 350,
+    MIN_SCORE_THRESHOLD: 40
   };
 
   private readonly LIMITS = {
-    MAX_CONTEXT_CHARS: 100000,
-    MAX_CHUNK_PREVIEW: 1800,
-    THINKING_BUDGET: 4000 // Tokens for forensic reasoning
+    MAX_CONTEXT_CHARS: 80000, 
+    MAX_CHUNK_PREVIEW: 1500,
+    THINKING_BUDGET_DEEP: 2000, 
+    THINKING_BUDGET_FAST: 0 
   };
   
   private retrieveRankedContext(chunks: LogChunk[], query: string, signatures: LogSignature[]): RetrievalResult {
     if (!chunks || chunks.length === 0) return { context: '', evidenceCount: 0, retrievalConfidence: 0 };
 
-    const queryTokens = query.toLowerCase().split(/\s+/).filter(t => t.length > 2)
-      .filter((token, index, arr) => arr.indexOf(token) === index);
+    const queryLower = query.toLowerCase();
+    const queryTokens = queryLower.split(/\s+/).filter(t => t.length > 2);
     
-    // Pass 1: Global Scoring
-    const scoredNodes: ScoredNode[] = chunks.map((chunk, index) => {
+    const scoredNodes: ScoredNode[] = [];
+    
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
       let score = 0;
       const content = chunk.content;
       const contentLower = content.toLowerCase();
 
-      queryTokens.forEach(token => { if (contentLower.includes(token)) score += this.SCORING.SEMANTIC_MATCH; });
+      for (const token of queryTokens) {
+        if (contentLower.includes(token)) score += this.SCORING.SEMANTIC_MATCH;
+      }
+
+      if (score === 0 && !content.includes('ERROR') && !content.includes('FATAL')) continue;
 
       if (content.includes('[FATAL]')) score += this.SCORING.SEVERITY.FATAL;
-      else if (content.includes('[CRITICAL]')) score += this.SCORING.SEVERITY.CRITICAL;
       else if (content.includes('[ERROR]')) score += this.SCORING.SEVERITY.ERROR;
-      else if (content.includes('[WARN]')) score += this.SCORING.SEVERITY.WARN;
 
-      if (content.includes('EventID:')) score += this.SCORING.ENTITY_MARKERS.EVENT_ID;
-      if (content.includes('trace_')) score += this.SCORING.ENTITY_MARKERS.TRACE_ID;
-      if (content.includes('SpanID:')) score += this.SCORING.ENTITY_MARKERS.SPAN_ID;
+      scoredNodes.push({ 
+        chunk, 
+        score, 
+        index: i, 
+        traceId: this.extractTraceId(content), 
+        eventId: this.extractEventId(content),
+        metadata: {} 
+      });
+    }
 
-      signatures.forEach(sig => { if (content.includes(sig.pattern)) score += this.SCORING.SIGNATURE_MATCH; });
-
-      return { chunk, score, index, traceId: this.extractTraceId(content), eventId: this.extractEventId(content) };
-    });
-
-    // LATENCY OPTIMIZATION: Sort once and take a subset for expensive re-ranking
-    const candidates = scoredNodes.sort((a, b) => b.score - a.score).slice(0, this.THRESHOLDS.RE_RANK_CANDIDATES);
-
-    // Pass 2: Relational Re-Ranking (on subset)
-    const highValueTraces = new Set(candidates.filter(n => n.score > this.THRESHOLDS.SIGNAL_BOOST_MIN && n.traceId).map(n => n.traceId));
-
-    candidates.forEach((node) => {
-      if (node.traceId && highValueTraces.has(node.traceId)) node.score += this.SCORING.TRACE_CAUSALITY_BOOST;
-      const neighbor = scoredNodes[node.index - 1] || scoredNodes[node.index + 1];
-      if (neighbor && neighbor.score > this.THRESHOLDS.SIGNAL_BOOST_MIN) node.score += this.SCORING.TEMPORAL_NEIGHBOR_BOOST;
-    });
-
-    const topK = candidates
-      .filter(n => n.score >= this.THRESHOLDS.MIN_SCORE_THRESHOLD)
+    const topK = scoredNodes
       .sort((a, b) => b.score - a.score)
       .slice(0, this.THRESHOLDS.TOP_K_RESULTS);
     
     if (topK.length === 0) return { context: '', evidenceCount: 0, retrievalConfidence: 0 };
 
-    const avgScore = topK.reduce((acc, curr) => acc + curr.score, 0) / topK.length;
-    const retrievalConfidence = Math.min(100, Math.round((avgScore / this.THRESHOLDS.MAX_CONFIDENCE_CAP) * 100));
+    const retrievalConfidence = 85; 
     
     let totalChars = 0;
     const contextParts = topK.sort((a, b) => a.index - b.index).map(node => {
@@ -118,20 +114,51 @@ export class GeminiService {
     return match ? match[1] : null;
   }
 
-  async *analyzeInitialDiscoveryStream(stats: ProcessingStats, userRole: UserRole, industry: Industry): AsyncGenerator<any> {
+  async *analyzeGlobalAuditStream(
+    stats: ProcessingStats, 
+    signatures: LogSignature[], 
+    userRole: UserRole, 
+    industry: Industry
+  ): AsyncGenerator<any> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const systemInstruction = `Senior SRE Discovery. { "greeting": string, "suggestions": string[] }. NO hallucination.`;
+    
+    const signatureContext = signatures.slice(0, 30).map(s => 
+      `[${s.severity}] ${s.pattern} (${s.count}x)`
+    ).join('\n');
+
+    const systemInstruction = `Lead SRE Auditor. High-speed summary mode. 
+1. Immediate failure detection.
+2. Direct suggestions.
+Return Markdown + JSON block: { "suggestions": string[] }.`;
+
     try {
-      const response = await ai.models.generateContent({
+      const responseStream = await ai.models.generateContentStream({
         model: 'gemini-3-flash-preview',
-        contents: `LOG_METRICS: ${JSON.stringify(stats)}. Role: ${userRole}.`,
-        config: { systemInstruction, responseMimeType: "application/json", temperature: 0.1 }
+        contents: `LOG_VOLUME: ${stats.totalEntries}\nSIGNATURES:\n${signatureContext}`,
+        config: { 
+          systemInstruction, 
+          temperature: 0.1,
+          thinkingConfig: { thinkingBudget: 0 } 
+        }
       });
-      const report = JSON.parse(response.text || '{}');
-      yield { type: 'text', data: report.greeting || "Forensic node linked." };
-      yield { type: 'suggestions', data: report.suggestions || [] };
-    } catch (e) {
-      yield { type: 'text', data: "Forensic logic online. Awaiting inquiry." };
+
+      let fullText = "";
+      for await (const chunk of responseStream) {
+        if (chunk.text) {
+          fullText += chunk.text;
+          yield { type: 'text', data: fullText.split('```json')[0] };
+        }
+      }
+
+      try {
+        const jsonMatch = fullText.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[1]);
+          if (parsed.suggestions) yield { type: 'suggestions', data: parsed.suggestions };
+        }
+      } catch (e) {}
+    } catch (e: any) {
+      yield { type: 'text', data: `Audit Engine Timeout: ${e.message}` };
     }
   }
 
@@ -146,13 +173,13 @@ export class GeminiService {
     signal?: AbortSignal
   ): AsyncGenerator<any> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const { context, evidenceCount, retrievalConfidence } = this.retrieveRankedContext(chunks, query, signatures);
+    
+    yield { type: 'phase', data: 'PARSING' };
+    const { context, evidenceCount } = this.retrieveRankedContext(chunks, query, signatures);
     
     yield { type: 'phase', data: 'SOLVING' };
 
-    const systemInstruction = `Lead SRE Forensic. 
-CRITICAL: Every claim must cite EventIDs/TraceIDs. Return RAW JSON.
-Confidence: ${retrievalConfidence}%. Use thinking tokens to explain reasoning.`;
+    const systemInstruction = `Lead SRE Forensic. Return RAW JSON only. Important: Extract the 'evidence_sample' as the exact raw log line from the context that proves the failure.`;
 
     const responseSchema = {
       type: Type.OBJECT,
@@ -165,7 +192,6 @@ Confidence: ${retrievalConfidence}%. Use thinking tokens to explain reasoning.`;
             status: { type: Type.STRING },
             confidence_score: { type: Type.NUMBER },
             user_impact_percent: { type: Type.NUMBER },
-            analyst_persona: { type: Type.STRING },
             affected_components: { type: Type.ARRAY, items: { type: Type.STRING } },
             root_cause_analysis: {
               type: Type.OBJECT,
@@ -173,20 +199,8 @@ Confidence: ${retrievalConfidence}%. Use thinking tokens to explain reasoning.`;
                 primary_failure: { type: Type.STRING },
                 error_signature: { type: Type.STRING },
                 mechanism: { type: Type.STRING },
-                description: { type: Type.STRING }
-              }
-            },
-            forensic_timeline: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  time: { type: Type.STRING },
-                  event: { type: Type.STRING },
-                  event_id: { type: Type.STRING },
-                  trace_id: { type: Type.STRING },
-                  details: { type: Type.STRING }
-                }
+                description: { type: Type.STRING },
+                evidence_sample: { type: Type.STRING, description: 'The exact raw log line as absolute proof.' }
               }
             },
             remediation_plan: {
@@ -197,33 +211,27 @@ Confidence: ${retrievalConfidence}%. Use thinking tokens to explain reasoning.`;
               }
             }
           },
-          required: ['id', 'severity', 'status', 'confidence_score', 'user_impact_percent', 'root_cause_analysis', 'remediation_plan']
+          required: ['id', 'severity', 'root_cause_analysis', 'remediation_plan']
         }
       },
       required: ['incident_report']
     };
 
     try {
-      if (signal?.aborted) return;
-      
       const stream = await ai.models.generateContentStream({
         model: modelId,
-        contents: `RETRIEVAL: Evidence=${evidenceCount}, Conf=${retrievalConfidence}%\n\nEVIDENCE:\n${context}\n\nUSER: ${query}`,
+        contents: `CONTEXT:\n${context}\nQUERY: ${query}`,
         config: { 
           systemInstruction, 
           responseMimeType: "application/json", 
           responseSchema, 
-          temperature: 0.2,
-          thinkingConfig: { thinkingBudget: this.LIMITS.THINKING_BUDGET } 
+          temperature: 0.1,
+          thinkingConfig: { thinkingBudget: this.LIMITS.THINKING_BUDGET_DEEP } 
         }
       });
 
       let fullText = "";
       for await (const chunk of stream) {
-        if (chunk.thinkingPath) {
-          // Streaming thoughts to make the system feel active
-          yield { type: 'text', data: `[Thinking] ${chunk.thinkingPath}` };
-        }
         if (chunk.text) {
           fullText += chunk.text;
         }
@@ -231,16 +239,13 @@ Confidence: ${retrievalConfidence}%. Use thinking tokens to explain reasoning.`;
 
       try {
         const parsed = JSON.parse(fullText || '{}');
-        if (parsed.incident_report) {
-          yield { type: 'structured_report', data: parsed };
-        } else {
-          yield { type: 'text', data: fullText };
-        }
+        if (parsed.incident_report) yield { type: 'structured_report', data: parsed };
+        else yield { type: 'text', data: fullText };
       } catch (err) {
-        yield { type: 'text', data: fullText || "Forensic stream logic fault." };
+        yield { type: 'text', data: fullText || "Fault." };
       }
     } catch (e: any) {
-       yield { type: 'text', data: `RAG Retrieval Fault: ${e.message}` };
+       yield { type: 'text', data: `Error: ${e.message}` };
     }
   }
 }

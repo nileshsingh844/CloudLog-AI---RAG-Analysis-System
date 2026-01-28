@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
 import { Hypothesis, WarRoomAction, UserRole, StructuredAnalysis } from '../types';
-import { Users, Lightbulb, CheckSquare, TrendingUp, AlertCircle, Plus, Send, ShieldCheck, XCircle, Search, Target, Users2 } from 'lucide-react';
+import { Users, Lightbulb, CheckSquare, TrendingUp, AlertCircle, Plus, Send, ShieldCheck, XCircle, Search, Target, Users2, ChevronLeft } from 'lucide-react';
 
 interface WarRoomProps {
   hypotheses: Hypothesis[];
@@ -11,15 +10,26 @@ interface WarRoomProps {
   onAddHypothesis: (theory: string) => void;
   onUpdateStatus: (id: string, status: Hypothesis['status']) => void;
   onAddAction: (label: string, assignee: UserRole) => void;
+  onBack: () => void;
 }
 
-export const WarRoom: React.FC<WarRoomProps> = ({ hypotheses, actions, userRole, analysis, onAddHypothesis, onUpdateStatus, onAddAction }) => {
+export const WarRoom: React.FC<WarRoomProps> = ({ hypotheses, actions, userRole, analysis, onAddHypothesis, onUpdateStatus, onAddAction, onBack }) => {
   const [newHypothesis, setNewHypothesis] = useState('');
   const [newActionLabel, setNewActionLabel] = useState('');
   const [newActionAssignee, setNewActionAssignee] = useState<UserRole>('BACKEND');
 
   return (
     <div className="p-8 space-y-8 animate-in fade-in duration-700 max-w-full overflow-hidden">
+      <div className="flex justify-start">
+        <button 
+          onClick={onBack}
+          className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-white/5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+        >
+          <ChevronLeft size={14} />
+          Back to Forensics
+        </button>
+      </div>
+
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/10 border border-blue-500/20 rounded-[2.5rem] p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-6 shadow-2xl">
          <div className="flex items-center gap-6">
@@ -34,7 +44,6 @@ export const WarRoom: React.FC<WarRoomProps> = ({ hypotheses, actions, userRole,
          
          <div className="flex gap-4">
             <div className="bg-slate-950/50 border border-slate-800 px-6 py-3 rounded-2xl flex flex-col items-center">
-               {/* Fixed property access: StructuredAnalysis contains incident_report */}
                <span className="text-xl font-black text-white italic">{analysis?.incident_report?.user_impact_percent || 0}%</span>
                <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">User Impact</span>
             </div>

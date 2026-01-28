@@ -43,6 +43,11 @@ h2. Impact Analysis
 Mechanism: ${ir.root_cause_analysis?.mechanism || "N/A"}
 Signature: ${ir.root_cause_analysis?.error_signature || "N/A"}
 
+h2. Forensic Proof (Searchable Log Line)
+{code}
+${ir.root_cause_analysis?.evidence_sample || "No evidence line attached."}
+{code}
+
 h2. Suggested Remediation
 ${(ir.remediation_plan?.steps || []).map(a => `* ${a}`).join('\n')}
 
@@ -69,10 +74,16 @@ export function formatRunbook(report: StructuredAnalysis): string {
 ### 1. Executive Summary
 ${failureName}
 
-### 2. Remediation Steps
+### 2. Forensic Proof
+Searchable Log Evidence:
+\`\`\`
+${ir.root_cause_analysis?.evidence_sample || "N/A"}
+\`\`\`
+
+### 3. Remediation Steps
 ${(ir.remediation_plan?.steps || []).map((action, i) => `${i + 1}. ${action}`).join('\n')}
 
-### 3. Verification Post-Fix
+### 4. Verification Post-Fix
 - Monitor log streams for pattern signatures.
 - Ensure engine confidence remains > 90%
 

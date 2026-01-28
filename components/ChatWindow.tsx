@@ -1,26 +1,24 @@
 import React, { useRef, memo, useCallback, useState, useEffect } from 'react';
 import { ChatMessage, CodeFile, ProcessingStats, LogChunk, TeamMember, ForensicComment, InvestigationStatus } from '../types';
-import { Bot, User, Loader2, ArrowUp, Command, Plus, Sparkles, ChevronLeft } from 'lucide-react';
+import { Bot, User, Loader2, ArrowUp, Command, Plus, Sparkles, ChevronLeft, Terminal, Shield } from 'lucide-react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { StructuredAnalysisRenderer } from './StructuredAnalysisRenderer';
 import { PresenceBar } from './PresenceBar';
-import { ForensicAnnotations } from './ForensicAnnotations';
 import { ProcessingSummary } from './ProcessingSummary';
 
 const AUTOCOMPLETE_TEMPLATES = [
-  "Find root cause of failure",
-  "Summarize system performance",
   "Identify memory anomalies",
   "Generate remediation patch",
-  "Trace temporal causality"
+  "Trace temporal causality",
+  "Audit security risks"
 ];
 
 const ANALYSIS_PHASES = {
-  UPLOADING: "Inference Acceleration: SIMD (C++)",
-  PARSING: "Vector Search: Ranking (Python)",
-  DETECTING: "LLM + RAG Logic: Synthesis (Python)",
-  SOLVING: "API Layer: Streaming Forensic (TS/Go)",
-  GENERATING: "Sentinel Node: Integrity (Go)"
+  UPLOADING: "Inference Acceleration (C++)",
+  PARSING: "Vector Search Re-Ranking (Python)",
+  DETECTING: "LLM + RAG Synthesis (Python)",
+  SOLVING: "Streaming Forensic Pass (Go/TS)",
+  GENERATING: "Sentinel Integrity Check (Go)"
 };
 
 interface MessageItemProps {
@@ -39,35 +37,37 @@ const MessageItem = memo(({ msg, allChunks, comments, onAddComment, onSuggestion
   const isUser = msg.role === 'user';
   const isFirstBotMessage = msg.role === 'assistant' && index === 1;
 
-  // Modern reading width: max-w-3xl (approx 768px) is ideal for readable log analysis
   return (
-    <div className={`w-full py-8 sm:py-12 transition-colors ${isUser ? '' : 'bg-slate-900/10'}`}>
-      <div className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-6 sm:gap-8 px-6">
-        <div className="shrink-0 hidden sm:block">
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-700 shadow-md
-            ${isUser ? 'bg-slate-800 border border-white/5 text-slate-500' : 'bg-blue-600 text-white shadow-blue-500/20'}`}>
+    <div className={`w-full py-6 sm:py-10 border-b border-white/[0.02] ${isUser ? '' : 'bg-slate-900/10'}`}>
+      <div className="max-w-4xl mx-auto flex gap-4 sm:gap-6 px-6">
+        <div className="shrink-0 pt-1">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-500 shadow-lg
+            ${isUser ? 'bg-slate-800 border border-white/10 text-slate-400' : 'bg-blue-600 text-white shadow-blue-500/20'}`}>
             {isUser ? <User size={16} /> : <Bot size={16} />}
           </div>
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="text-[15px] sm:text-[16px] leading-[1.8] text-slate-200/95 font-medium selection:bg-blue-500/40">
+          <div className="text-[15px] leading-relaxed text-slate-300 font-medium">
             {msg.isLoading ? (
-              <div className="flex flex-col gap-4 py-2 animate-in fade-in duration-500">
-                <div className="flex items-center gap-4">
-                  <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                  <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] animate-pulse">
-                    {msg.analysisPhase ? ANALYSIS_PHASES[msg.analysisPhase] : 'Initializing...'}
+              <div className="flex flex-col gap-4 py-1 animate-in fade-in duration-300">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                    <div className="absolute inset-0 bg-blue-500/20 blur-sm rounded-full" />
+                  </div>
+                  <span className="text-[10px] text-blue-400 font-black uppercase tracking-[0.2em] animate-pulse">
+                    {msg.analysisPhase ? ANALYSIS_PHASES[msg.analysisPhase] : 'Initializing Node...'}
                   </span>
                 </div>
                 
-                <div className="flex items-center gap-1.5 max-w-[200px]">
+                <div className="flex items-center gap-1.5 max-w-[240px]">
                   {Object.keys(ANALYSIS_PHASES).map((phase, i) => {
                     const currentIdx = msg.analysisPhase ? Object.keys(ANALYSIS_PHASES).indexOf(msg.analysisPhase) : -1;
                     return (
                       <div 
                         key={phase}
-                        className={`h-0.5 flex-1 rounded-full transition-all duration-700 ${currentIdx >= i ? 'bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.5)]' : 'bg-slate-800'}`} 
+                        className={`h-0.5 flex-1 rounded-full transition-all duration-700 ${currentIdx >= i ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'bg-slate-800'}`} 
                       />
                     );
                   })}
@@ -79,19 +79,19 @@ const MessageItem = memo(({ msg, allChunks, comments, onAddComment, onSuggestion
               <div className="space-y-6">
                 {isFirstBotMessage && stats && <ProcessingSummary stats={stats} />}
                 
-                <div className="whitespace-pre-wrap opacity-90">{msg.content || "End of logic trace."}</div>
+                <div className="whitespace-pre-wrap leading-relaxed opacity-95">
+                  {msg.content || "Neural stream stabilized. Awaiting signal."}
+                </div>
                 
                 {isFirstBotMessage && suggestions.length > 0 && (
-                  <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-top-2 duration-700 pt-2">
+                  <div className="flex flex-wrap gap-2 pt-2">
                     {suggestions.map((s, idx) => (
                       <button
                         key={idx}
                         onClick={() => onSuggestionClick(s)}
-                        className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all border shadow-sm hover:scale-105 active:scale-95
-                          ${s.includes('🔴') ? 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20' :
-                            s.includes('🟡') ? 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20' :
-                            'bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20'}`}
+                        className="px-4 py-2 bg-slate-900 border border-white/[0.05] hover:border-blue-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all shadow-md active:scale-95 flex items-center gap-2 group"
                       >
+                        <Terminal size={10} className="text-slate-600 group-hover:text-blue-400" />
                         {s}
                       </button>
                     ))}
@@ -100,16 +100,6 @@ const MessageItem = memo(({ msg, allChunks, comments, onAddComment, onSuggestion
               </div>
             )}
           </div>
-
-          {!msg.isLoading && (!isFirstBotMessage || (isFirstBotMessage && (msg.content || "").length > 0)) && (
-            <div className="mt-8">
-               <ForensicAnnotations 
-                 targetId={msg.id} 
-                 comments={comments} 
-                 onAddComment={(content) => onAddComment(msg.id, content)} 
-               />
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -170,10 +160,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInputValue(val);
-    
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
+      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 160)}px`;
     }
   };
 
@@ -186,11 +175,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
   return (
     <div className="flex-1 flex flex-col h-full relative bg-[#020617] overflow-hidden">
       
-      {/* Dynamic Context Header */}
-      <header className="h-14 flex items-center justify-between px-6 bg-[#020617]/80 backdrop-blur-xl shrink-0 border-b border-white/[0.03] z-40">
+      {/* Workspace Controls Header */}
+      <header className="h-14 flex items-center justify-between px-6 bg-[#020617]/90 backdrop-blur-xl shrink-0 border-b border-white/[0.03] z-50">
         <div className="flex items-center gap-3">
-          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Forensic Workspace</span>
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
+          <span className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Forensic Workspace</span>
         </div>
         
         <PresenceBar 
@@ -201,7 +190,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
         />
       </header>
 
-      {/* Message Stream */}
+      {/* Primary Message Feed */}
       <div className="flex-1 min-h-0 relative">
         <Virtuoso
           ref={virtuosoRef}
@@ -222,35 +211,37 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
           )}
           style={{ height: '100%' }}
           className="scrollbar-hide"
+          increaseViewportBy={300}
         />
       </div>
 
-      {/* Input Stage */}
-      <div className="shrink-0 z-40 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent pt-4 pb-4 sm:pb-8">
-        <div className="max-w-3xl mx-auto px-4 space-y-4">
+      {/* Interactive Input Node */}
+      <div className="shrink-0 z-40 bg-[#020617] border-t border-white/[0.03] pt-4 pb-4 sm:pb-8">
+        <div className="max-w-4xl mx-auto px-6 space-y-4">
           
+          {/* Quick-Action Chips */}
           {!isProcessing && messages.length > 1 && (
-            <div className="flex flex-wrap justify-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-700">
-               {AUTOCOMPLETE_TEMPLATES.slice(0, 3).map((s, idx) => (
+            <div className="flex flex-wrap justify-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
+               {AUTOCOMPLETE_TEMPLATES.map((s, idx) => (
                  <button
                    key={idx}
                    onClick={() => handleSubmit(s)}
-                   className="px-3 py-1.5 bg-slate-900 border border-white/[0.05] hover:border-blue-500/30 rounded-lg text-[9px] font-bold text-slate-500 hover:text-white transition-all active:scale-95 flex items-center gap-2 group"
+                   className="px-3 py-1.5 bg-slate-900 border border-white/[0.05] hover:border-blue-500/30 rounded-lg text-[9px] font-black text-slate-500 hover:text-blue-400 transition-all active:scale-95 flex items-center gap-2 group"
                  >
-                   <Plus size={12} className="text-slate-700 group-hover:text-blue-400" />
+                   <Plus size={12} className="text-slate-700 group-hover:text-blue-500" />
                    {s}
                  </button>
                ))}
             </div>
           )}
 
-          {/* Claude/ChatGPT style Floating Bar */}
-          <div className="relative">
-            <div className={`relative bg-slate-900 border border-white/[0.08] rounded-2xl transition-all duration-500 shadow-2xl focus-within:border-blue-500/30 focus-within:ring-2 focus-within:ring-blue-500/5 ${isProcessing ? 'opacity-70 pointer-events-none' : ''}`}>
+          {/* Unified Input Control */}
+          <div className="relative group">
+            <div className={`relative bg-slate-900/60 border border-white/[0.08] rounded-2xl transition-all duration-300 shadow-2xl focus-within:border-blue-500/40 focus-within:bg-slate-900 focus-within:ring-4 focus-within:ring-blue-500/5 ${isProcessing ? 'opacity-80' : ''}`}>
               
               <div className="flex items-end px-3 py-3">
                  <div className="flex items-center gap-1 pb-1">
-                    <button className="p-2 text-slate-500 hover:text-white transition-colors" title="Command palette">
+                    <button className="p-2.5 text-slate-600 hover:text-blue-400 hover:bg-white/5 rounded-xl transition-all" title="Attach context">
                        <Command size={18} />
                     </button>
                  </div>
@@ -259,8 +250,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
                    ref={inputRef}
                    rows={1}
                    value={inputValue}
-                   placeholder="Ask forensic inquiry..."
-                   className="flex-1 bg-transparent border-none focus:ring-0 text-[15px] text-slate-100 py-2.5 px-3 resize-none max-h-[200px] placeholder:text-slate-800 leading-relaxed font-medium scrollbar-hide"
+                   placeholder={isProcessing ? "Synthesizing deep forensic report..." : "Ask forensic engine to trace causality..."}
+                   disabled={isProcessing}
+                   className="flex-1 bg-transparent border-none focus:ring-0 text-[15px] text-slate-100 py-2.5 px-3 resize-none max-h-[160px] placeholder:text-slate-700 leading-relaxed font-medium scrollbar-hide disabled:cursor-not-allowed"
                    onChange={handleTextareaChange}
                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
                  />
@@ -270,27 +262,35 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({
                       <button 
                         type="button"
                         onClick={onStop}
-                        className="w-9 h-9 flex items-center justify-center rounded-lg bg-red-600 hover:bg-red-500 text-white shadow-xl transition-all active:scale-95"
+                        className="w-10 h-10 flex items-center justify-center rounded-xl bg-red-600 hover:bg-red-500 text-white shadow-xl transition-all active:scale-95 group"
+                        title="Abort forensic cycle"
                       >
-                        <div className="w-3 h-3 bg-white rounded-sm" />
+                        <div className="w-3.5 h-3.5 bg-white rounded-[2px] group-hover:scale-90 transition-transform" />
                       </button>
                     ) : (
                       <button 
                         type="button"
                         onClick={() => handleSubmit()}
                         disabled={!inputValue.trim()}
-                        className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-300
-                          ${!inputValue.trim() ? 'bg-slate-800 text-slate-700' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg scale-105 active:scale-95'}
+                        className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-300
+                          ${!inputValue.trim() ? 'bg-slate-800 text-slate-700' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-500/20 active:scale-90'}
                         `}
                       >
-                        <ArrowUp size={18} className="stroke-[3]" />
+                        <ArrowUp size={20} strokeWidth={3} />
                       </button>
                     )}
                  </div>
               </div>
             </div>
-            <div className="mt-2 text-center opacity-30 select-none">
-               <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em]">AI can make errors. Verify high-fidelity patches.</p>
+            
+            {/* Meta Indicator */}
+            <div className="absolute -bottom-6 left-0 right-0 flex items-center justify-center gap-4 opacity-30 select-none">
+               <div className="flex items-center gap-1.5">
+                  <Shield size={8} className="text-emerald-500" />
+                  <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">Neural Compliance Active</span>
+               </div>
+               <div className="w-1 h-1 bg-slate-800 rounded-full" />
+               <p className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">Verify High-Fidelity Patches</p>
             </div>
           </div>
         </div>

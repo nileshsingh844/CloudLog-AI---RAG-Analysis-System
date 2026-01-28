@@ -14,7 +14,6 @@ export type TechLayer = 'FRONTEND' | 'BACKEND' | 'DATABASE' | 'INFRASTRUCTURE' |
 export type OutputFormat = 'short' | 'detailed' | 'ticket';
 export type InvestigationStatus = 'DRAFT' | 'ACTIVE_WAR_ROOM' | 'RESOLVED' | 'ARCHIVED';
 
-// Added missing types used in various components and services to resolve export errors
 export interface SearchIndex {
   id: string;
 }
@@ -243,6 +242,7 @@ export interface IncidentReport {
     error_signature: string;
     mechanism: string;
     description: string;
+    evidence_sample?: string;
   };
   forensic_timeline: TimelineEvent[];
   remediation_plan: {
@@ -418,7 +418,6 @@ export interface AppState {
   comments: ForensicComment[];
   teamMembers: TeamMember[];
   investigationStatus: InvestigationStatus;
-  // Added missing fields used in store initialization and components
   knowledgeFiles: KnowledgeFile[];
   searchIndex: SearchIndex | null;
   currentDeploymentRisk: DeploymentRisk | null;

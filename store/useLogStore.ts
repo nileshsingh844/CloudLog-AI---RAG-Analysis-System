@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { AppState, LogEntry, LogChunk, ProcessingStats, ChatMessage, Severity, UserRole, Industry, Hypothesis, WarRoomAction, ResolvedIncident, PipelineStep, DiagnosticWorkflow, ModelOption, SourceLocation, PerformanceTrend, AppliedFix, ForensicComment, TeamMember, InvestigationStatus, LogSignature } from '../types';
 import { detectTechStack, detectIndustry, generateTimeBuckets, chunkLogEntries } from '../utils/logParser';
 
-const STORAGE_KEY = 'cloudlog_ai_polyglot_v2';
+const STORAGE_KEY = 'cloudlog_ai_polyglot_v3';
 
 export const AVAILABLE_MODELS: ModelOption[] = [
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: 'Fast, cost-effective inference', capabilities: ['text'] },
@@ -32,43 +32,49 @@ export function useLogStore() {
   const workerRef = useRef<Worker | null>(null);
   const [isRestarting, setIsRestarting] = useState(false);
 
+  const getInitialState = (): AppState => ({
+    userRole: 'BACKEND',
+    industry: 'GENERAL',
+    isProcessing: false,
+    isDiscovering: false,
+    ingestionProgress: 0,
+    logs: [],
+    chunks: [],
+    sourceFiles: [],
+    knowledgeFiles: [],
+    searchIndex: null,
+    stats: null,
+    messages: [],
+    selectedModelId: 'gemini-3-pro-preview',
+    outputFormat: 'detailed',
+    workflow: { discovery: 'pending', summary: 'pending', rootCause: 'pending', fix: 'pending', report: 'pending' },
+    activeStep: 'ingestion',
+    isSettingsOpen: false,
+    discoverySignatures: [],
+    activeInvestigationId: null,
+    hypotheses: INITIAL_VERIFIED_HYPOTHESES,
+    warRoomActions: INITIAL_VERIFIED_ACTIONS,
+    resolvedLibrary: [],
+    selectedLocation: null,
+    anomalies: [],
+    trends: [],
+    currentDeploymentRisk: null,
+    appliedFixes: [],
+    comments: [],
+    teamMembers: MOCK_TEAM,
+    investigationStatus: 'ACTIVE_WAR_ROOM'
+  });
+
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    const baseState: AppState = {
-      userRole: 'BACKEND',
-      industry: 'GENERAL',
-      isProcessing: false,
-      isDiscovering: false,
-      ingestionProgress: 0,
-      logs: [],
-      chunks: [],
-      sourceFiles: [],
-      knowledgeFiles: [],
-      searchIndex: null,
-      stats: null,
-      messages: [],
-      selectedModelId: 'gemini-3-pro-preview',
-      outputFormat: 'detailed',
-      workflow: { discovery: 'pending', summary: 'pending', rootCause: 'pending', fix: 'pending', report: 'pending' },
-      activeStep: 'ingestion',
-      isSettingsOpen: false,
-      discoverySignatures: [],
-      activeInvestigationId: null,
-      hypotheses: INITIAL_VERIFIED_HYPOTHESES,
-      warRoomActions: INITIAL_VERIFIED_ACTIONS,
-      resolvedLibrary: [],
-      selectedLocation: null,
-      anomalies: [],
-      trends: [],
-      currentDeploymentRisk: null,
-      appliedFixes: [],
-      comments: [],
-      teamMembers: MOCK_TEAM,
-      investigationStatus: 'ACTIVE_WAR_ROOM'
-    };
+    const baseState = getInitialState();
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        // Ensure complex dates are revived
+        if (parsed.messages) {
+          parsed.messages = parsed.messages.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }));
+        }
         return { ...baseState, ...parsed };
       } catch (e) {
         return baseState;
@@ -86,21 +92,28 @@ export function useLogStore() {
       activeStep: state.activeStep, 
       investigationStatus: state.investigationStatus,
       hypotheses: state.hypotheses,
-      warRoomActions: state.warRoomActions
+      warRoomActions: state.warRoomActions,
+      workflow: state.workflow
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-  }, [state.userRole, state.industry, state.messages, state.stats, state.activeStep, state.investigationStatus, state.hypotheses, state.warRoomActions]);
+  }, [state.userRole, state.industry, state.messages, state.stats, state.activeStep, state.investigationStatus, state.hypotheses, state.warRoomActions, state.workflow]);
 
   const resetApp = useCallback(async () => {
     setIsRestarting(true);
-    // Coordinated teardown sequence
     localStorage.removeItem(STORAGE_KEY);
     sessionStorage.clear();
     
-    // Hold for 3s to show the reboot animation
     setTimeout(() => {
-      window.location.reload();
-    }, 3200);
+      setState(getInitialState());
+      setIsRestarting(false);
+    }, 1500);
+  }, []);
+
+  const setWorkflowStatus = useCallback((step: keyof DiagnosticWorkflow, status: 'pending' | 'active' | 'completed') => {
+    setState(s => ({
+      ...s,
+      workflow: { ...s.workflow, [step]: status }
+    }));
   }, []);
 
   const processNewFile = useCallback((files: File[]): Promise<void> => {
@@ -117,11 +130,24 @@ export function useLogStore() {
         ingestionProgress: 0, 
         messages: [], 
         stats: null,
-        activeStep: 'ingestion' 
+        activeStep: 'ingestion',
+        workflow: { discovery: 'pending', summary: 'pending', rootCause: 'pending', fix: 'pending', report: 'pending' }
       }));
 
       const LOG_PROCESSOR_WORKER_CODE = `
         const Severity = { FATAL: 'FATAL', ERROR: 'ERROR', WARN: 'WARN', INFO: 'INFO', DEBUG: 'DEBUG', UNKNOWN: 'UNKNOWN' };
+        
+        function detectSeverity(line) {
+          if (line.includes('FATAL') || line.includes('CRITICAL')) return Severity.FATAL;
+          if (line.includes('ERROR')) return Severity.ERROR;
+          if (line.includes('WARN')) return Severity.WARN;
+          return Severity.INFO;
+        }
+
+        function getSignature(line) {
+           return line.replace(/[a-f0-9]{8,}/gi, 'XID').replace(/\\d+/g, '#').replace(/\\/[\\w\\-\\.\\/]+/g, '/FS_PATH').trim();
+        }
+
         self.onmessage = async (e) => {
           const { file, type } = e.data || {};
           if (type === "INIT") { self.postMessage({ type: "READY" }); return; }
@@ -129,18 +155,35 @@ export function useLogStore() {
           try {
             const content = await file.text();
             const lines = content.split('\\n').filter(l => l.trim());
-            const entries = lines.map((l, i) => ({
-              id: \`w-\${i}\`,
-              severity: l.includes('CRITICAL') ? 'FATAL' : l.includes('ERROR') ? 'ERROR' : l.includes('WARN') ? 'WARN' : 'INFO',
-              message: l.substring(0, 500),
-              raw: l,
-              timestamp: new Date(),
-              metadata: { hasStackTrace: l.includes('at '), signature: 'SIG-AUTO', layer: 'UNKNOWN' }
-            }));
+            
+            const entries = lines.map((l, i) => {
+               const severity = detectSeverity(l);
+               return {
+                  id: \`w-\${i}\`,
+                  severity: severity,
+                  message: l.substring(0, 500),
+                  raw: l,
+                  timestamp: new Date(),
+                  metadata: { hasStackTrace: l.includes('at '), signature: getSignature(l.substring(0, 100)), layer: 'UNKNOWN' }
+               };
+            });
+
+            const signatureMap = new Map();
+            const severityCounts = { FATAL: 0, ERROR: 0, WARN: 0, INFO: 0, DEBUG: 0, UNKNOWN: 0 };
+            
+            entries.forEach(e => {
+              severityCounts[e.severity]++;
+              const key = e.metadata.signature;
+              if (!signatureMap.has(key)) {
+                signatureMap.set(key, { count: 0, severity: e.severity, sample: e.raw });
+              }
+              signatureMap.get(key).count++;
+            });
+
             self.postMessage({ type: 'COMPLETE', payload: { 
               logs: entries, 
-              signatureMap: [['SIG-AUTO', {count: entries.length, severity: 'INFO', sample: lines[0]}]], 
-              severityCounts: { FATAL: 2, ERROR: 8, WARN: 15, INFO: entries.length - 25, DEBUG: 0, UNKNOWN: 0 }, 
+              signatureMap: Array.from(signatureMap.entries()), 
+              severityCounts, 
               lineCount: entries.length, 
               fileName: file.name } 
             });
@@ -157,9 +200,11 @@ export function useLogStore() {
         worker.postMessage({ type: "INIT" });
 
         worker.onmessage = (e) => {
-          const { type, payload } = e.data;
+          const { type, payload, error } = e.data;
           if (type === "READY") {
             worker.postMessage({ file });
+          } else if (type === 'PROGRESS') {
+            setState(s => ({ ...s, ingestionProgress: e.data.progress }));
           } else if (type === 'COMPLETE') {
             const { logs, signatureMap, severityCounts, lineCount, fileName } = payload;
             const chunks = chunkLogEntries(logs);
@@ -174,8 +219,8 @@ export function useLogStore() {
               fileName: fileName,
               chunkCount: chunks.length,
               uniqueChunks: chunks.length,
-              detectedStack: detectTechStack(logs[0]?.raw || ''),
-              industryMatch: detectIndustry(logs[0]?.raw || ''),
+              detectedStack: detectTechStack(logs.slice(0, 50).map((l: any) => l.raw).join('\n')),
+              industryMatch: detectIndustry(logs.slice(0, 50).map((l: any) => l.raw).join('\n')),
               processedFiles: [fileName],
               inferredFiles: [],
               crossLogPatterns: signatureMap.length
@@ -186,7 +231,7 @@ export function useLogStore() {
                 pattern,
                 count: data.count,
                 severity: data.severity,
-                description: `Signature node for verified causality analysis.`,
+                description: `Pattern logic: Detected in ${data.count} distinct signal points.`,
                 sample: data.sample
             }));
 
@@ -199,16 +244,26 @@ export function useLogStore() {
               isProcessing: false,
               activeStep: 'analysis',
               investigationStatus: 'ACTIVE_WAR_ROOM',
-              hypotheses: INITIAL_VERIFIED_HYPOTHESES,
-              warRoomActions: INITIAL_VERIFIED_ACTIONS,
               workflow: { discovery: 'active', summary: 'pending', rootCause: 'pending', fix: 'pending', report: 'pending' }
             }));
             
             worker.terminate();
             resolve();
+          } else if (type === 'ERROR') {
+             console.error("Worker Execution Fault:", error);
+             setState(s => ({ ...s, isProcessing: false }));
+             reject(error);
           }
         };
+
+        worker.onerror = (err) => {
+          console.error("Worker Bridge Failure:", err);
+          setState(s => ({ ...s, isProcessing: false }));
+          reject(err);
+        };
+
       } catch (err) {
+        setState(s => ({ ...s, isProcessing: false }));
         reject(err);
       }
     });
@@ -222,6 +277,7 @@ export function useLogStore() {
     setActiveStep: (step: PipelineStep) => setState(s => ({ ...s, activeStep: step })),
     processNewFile,
     resetApp,
+    setWorkflowStatus,
     addMessage: (msg: ChatMessage) => setState(s => ({ ...s, messages: [...s.messages, msg] })),
     stopAnalysis: () => {
       if (workerRef.current) workerRef.current.terminate();
@@ -255,12 +311,47 @@ export function useLogStore() {
     setLastMessageStructuredReport: (report: any) => setState(s => {
       const msgs = [...s.messages];
       if (msgs.length > 0) msgs[msgs.length - 1].structuredReport = report;
-      return { ...s, messages: msgs };
+      
+      const newWorkflow = { ...s.workflow };
+      if (report?.incident_report) {
+        newWorkflow.discovery = 'completed';
+        newWorkflow.summary = 'completed';
+        newWorkflow.rootCause = 'completed';
+        newWorkflow.fix = 'completed';
+        newWorkflow.report = 'completed';
+      }
+
+      return { ...s, messages: msgs, workflow: newWorkflow };
     }),
     setAnalysisPhase: (phase: ChatMessage['analysisPhase']) => setState(s => {
       const msgs = [...s.messages];
       if (msgs.length > 0 && msgs[msgs.length - 1].isLoading) msgs[msgs.length - 1].analysisPhase = phase;
-      return { ...s, messages: msgs };
+      
+      const newWorkflow = { ...s.workflow };
+      if (phase === 'UPLOADING') { 
+        newWorkflow.discovery = 'active'; 
+      }
+      else if (phase === 'PARSING') { 
+        newWorkflow.discovery = 'completed'; 
+        newWorkflow.summary = 'active'; 
+        newWorkflow.rootCause = 'active';
+      }
+      else if (phase === 'DETECTING') { 
+        newWorkflow.discovery = 'completed'; 
+        newWorkflow.summary = 'active'; 
+      }
+      else if (phase === 'SOLVING') { 
+        newWorkflow.summary = 'completed'; 
+        newWorkflow.rootCause = 'active'; 
+        newWorkflow.fix = 'active';
+      }
+      else if (phase === 'GENERATING') { 
+        newWorkflow.rootCause = 'completed'; 
+        newWorkflow.fix = 'active'; 
+        newWorkflow.report = 'active';
+      }
+
+      return { ...s, messages: msgs, workflow: newWorkflow };
     }),
     prepareAnalysis: () => {
       const controller = new AbortController();

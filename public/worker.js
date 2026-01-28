@@ -1,4 +1,3 @@
-
 // Standardized Normalization logic for RAG precision
 
 const Severity = {
@@ -11,7 +10,7 @@ const Severity = {
 };
 
 const MAX_UNIQUE_SIGNATURES = 5000;
-const MAX_SAMPLED_LOGS = 10000; 
+const MAX_SAMPLED_LOGS = 10000;
 
 function getSignature(message) {
   if (!message) return 'EMPTY';
@@ -49,7 +48,7 @@ function extractTimestamp(raw) {
   const commonRegex = /\[\d{2}\/\w{3}\/\d{4}:\d{2}:\d{2}:\d{2}/;
   
   const isoMatch = raw.match(isoRegex);
-  if (isoMatch) return isoMatch[0].replace(' ', 'T'); 
+  if (isoMatch) return isoMatch[0].replace(' ', 'T');
   
   const commonMatch = raw.match(commonRegex);
   if (commonMatch) return commonMatch[0].replace('[', '');
@@ -62,8 +61,8 @@ function isStackLine(line) {
   return trimmed.startsWith('at ') || trimmed.startsWith('...') || trimmed.startsWith('Caused by:');
 }
 
-self.onmessage = async (e) => {
-  const { file, type } = e.data || {};
+self.onmessage = async (event) => {
+  const { file, type } = event.data || {};
   
   if (type === "INIT") {
     self.postMessage({ type: "READY" });
@@ -81,12 +80,38 @@ self.onmessage = async (e) => {
     let entries = [];
     let signatureMap = new Map();
     let severityCounts = {
-      [Severity.FATAL]: 0, [Severity.ERROR]: 0, [Severity.WARN]: 0, 
-      [Severity.INFO]: 0, [Severity.DEBUG]: 0, [Severity.UNKNOWN]: 0
+      [Severity.FATAL]: 0,
+      [Severity.ERROR]: 0,
+      [Severity.WARN]: 0,
+      [Severity.INFO]: 0,
+      [Severity.DEBUG]: 0,
+      [Severity.UNKNOWN]: 0
     };
 
     let lineCount = 0;
     let currentEntry = null;
+    let lastProgressUpdate = 0;
+
+    const processEntry = (entry) => {
+      severityCounts[entry.severity]++;
+      const sig = entry.metadata.signature;
+      
+      let sigData = signatureMap.get(sig);
+      if (sigData) {
+        sigData.count++;
+      } else if (signatureMap.size < MAX_UNIQUE_SIGNATURES) {
+        signatureMap.set(sig, { count: 1, sample: entry.raw.substring(0, 300), severity: entry.severity });
+      }
+
+      // Sample more heavily for large files to prevent UI lockup
+      const isCritical = entry.severity === Severity.ERROR || entry.severity === Severity.FATAL;
+      const shouldSample = isCritical || (entries.length < 1000) || (entries.length < MAX_SAMPLED_LOGS && lineCount % 10 === 0);
+
+      if (shouldSample) {
+        entry.timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
+        entries.push(entry);
+      }
+    };
 
     while (true) {
       const { done, value } = await reader.read();
@@ -123,34 +148,18 @@ self.onmessage = async (e) => {
             layer: 'UNKNOWN'
           }
         };
+
+        // Throttled progress updates
+        const currentProgress = Math.min(99, Math.round((totalBytesRead / (file.size || 1)) * 100));
+        if (currentProgress >= lastProgressUpdate + 2) {
+          self.postMessage({ type: 'PROGRESS', progress: currentProgress });
+          lastProgressUpdate = currentProgress;
+        }
       }
     }
 
-    if (currentEntry) processEntry(currentEntry);
-
-    function processEntry(entry) {
-      severityCounts[entry.severity]++;
-      const sig = entry.metadata.signature;
-      
-      let sigData = signatureMap.get(sig);
-      if (sigData) {
-        sigData.count++;
-      } else if (signatureMap.size < MAX_UNIQUE_SIGNATURES) {
-        signatureMap.set(sig, { count: 1, sample: entry.raw.substring(0, 300), severity: entry.severity });
-      }
-
-      // Sample more heavily for large files to prevent UI lockup
-      const isCritical = entry.severity === Severity.ERROR || entry.severity === Severity.FATAL;
-      const shouldSample = isCritical || (entries.length < 1000) || (entries.length < MAX_SAMPLED_LOGS && lineCount % 10 === 0);
-
-      if (shouldSample) {
-        entry.timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
-        entries.push(entry);
-      }
-
-      if (lineCount % 1000 === 0) {
-        self.postMessage({ type: 'PROGRESS', progress: Math.min(99, Math.round((totalBytesRead / (file.size || 1)) * 100)) });
-      }
+    if (currentEntry) {
+      processEntry(currentEntry);
     }
 
     self.postMessage({

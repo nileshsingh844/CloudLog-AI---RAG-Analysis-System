@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -21,9 +20,11 @@
             color: var(--text-primary);
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
-            font-size: 17px; /* Increased base size */
-            line-height: 1.75; /* Generous line spacing */
+            font-size: 17px;
+            line-height: 1.75;
             letter-spacing: -0.01em;
+            overflow-x: hidden;
+            max-width: 100vw;
         }
         h1, h2, h3, h4 {
             letter-spacing: -0.03em;
@@ -32,6 +33,14 @@
         .mono {
             font-family: 'Fira Code', monospace;
             font-size: 0.9em;
+        }
+        /* Page Break Safety for Forensic Reports */
+        @media print {
+            body { background: white; color: black; }
+            .no-print { display: none; }
+            .page-break-avoid { break-inside: avoid; }
+            .page-break-before { break-before: page; }
+            .glass-panel { backdrop-filter: none; background: white; border: 1px solid #ddd; }
         }
         /* Optimized reading column */
         .reading-column {
@@ -85,5 +94,6 @@
 </head>
 <body>
     <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
 </body>
 </html>

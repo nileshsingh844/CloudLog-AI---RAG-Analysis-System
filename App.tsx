@@ -1,3 +1,4 @@
+
 import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useLogStore, AVAILABLE_MODELS } from './store/useLogStore';
 import { FileUpload } from './components/FileUpload';
@@ -7,7 +8,6 @@ import { PipelineTestRunner } from './components/PipelineTestRunner';
 import { GeminiService } from './services/geminiService';
 import { 
   Terminal, 
-  Github, 
   Settings, 
   PlusCircle, 
   Cpu, 
@@ -22,7 +22,6 @@ import {
   Menu,
   X,
   Loader2,
-  Lock
 } from 'lucide-react';
 import { IntelligenceHub } from './components/IntelligenceHub';
 import { CodeHub } from './components/CodeHub';
@@ -35,9 +34,6 @@ import { ProactiveDashboard } from './components/ProactiveDashboard';
 
 const gemini = new GeminiService();
 
-/**
- * World-class Reboot Sequence Component
- */
 const RebootOverlay = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const sequence = [
@@ -52,7 +48,7 @@ const RebootOverlay = () => {
 
   useEffect(() => {
     sequence.forEach((line, i) => {
-      setTimeout(() => setLogs(prev => [...prev, line]), i * 200); // Reduced delay for snappiness
+      setTimeout(() => setLogs(prev => [...prev, line]), i * 200); 
     });
   }, []);
 
@@ -113,7 +109,12 @@ export default function App() {
     setAnalysisPhase,
     prepareAnalysis,
     setIsProcessing,
-    setSelectedModelId
+    setSelectedModelId,
+    setActiveStep,
+    setWorkflowStatus,
+    addHypothesis,
+    updateHypothesisStatus,
+    addAction
   } = useLogStore();
 
   const [isIntelligenceOpen, setIsIntelligenceOpen] = useState(false);
@@ -128,48 +129,65 @@ export default function App() {
 
   const hasAutoPromptedRef = useRef(false);
 
+  // Memoize latest structured analysis for global components
+  const latestAnalysis = useMemo(() => {
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      if (state.messages[i].structuredReport) return state.messages[i].structuredReport;
+    }
+    return undefined;
+  }, [state.messages]);
+
+  const goHome = useCallback(() => {
+    setActiveStep('ingestion');
+    setActiveView('chat');
+    setIsDemoMode(false);
+    hasAutoPromptedRef.current = false;
+  }, [setActiveStep]);
+
   useEffect(() => {
     if (state.stats && state.messages.length === 0 && !state.isProcessing && state.activeStep === 'analysis') {
        startDiscovery();
     }
   }, [state.stats, state.activeStep, state.messages.length, state.isProcessing]);
 
-  useEffect(() => {
-    if (isDemoMode && 
-        state.activeStep === 'analysis' && 
-        state.messages.length > 0 && 
-        !state.messages[state.messages.length - 1].isLoading && 
-        !state.isProcessing && 
-        !hasAutoPromptedRef.current) {
-      
-      hasAutoPromptedRef.current = true;
-      setTimeout(() => {
-        handleSendMessage("Analyze the OOM failure and cascading payment timeouts. Suggest a high-fidelity patch based on the log events provided.");
-      }, 500); // Snappier auto-prompt
-    }
-  }, [state.messages.length, isDemoMode, state.isProcessing, state.activeStep]);
-
   const startDiscovery = async () => {
     if (!state.stats) return;
     setIsProcessing(true);
+    setAnalysisPhase('DETECTING');
+    setWorkflowStatus('discovery', 'active');
+    setWorkflowStatus('summary', 'active');
+
     addMessage({
-      id: `disc-${Date.now()}`,
+      id: `audit-${Date.now()}`,
       role: 'assistant',
-      content: 'Reconstructing logic nodes...',
+      content: 'Running Global Forensic Audit...',
       timestamp: new Date(),
       isLoading: true,
-      analysisPhase: 'UPLOADING'
+      analysisPhase: 'DETECTING'
     });
 
+    let currentSuggestions: string[] = [];
     try {
-      const stream = gemini.analyzeInitialDiscoveryStream(state.stats, state.userRole, state.industry);
+      const stream = gemini.analyzeGlobalAuditStream(state.stats, state.discoverySignatures, state.userRole, state.industry);
       for await (const chunk of stream) {
         if (chunk.type === 'text') replaceLastMessageContent(chunk.data);
-        if (chunk.type === 'suggestions') setSuggestions(chunk.data);
+        if (chunk.type === 'suggestions') {
+          currentSuggestions = chunk.data;
+          setSuggestions(chunk.data);
+        }
+      }
+      setWorkflowStatus('discovery', 'completed');
+      setWorkflowStatus('summary', 'completed');
+
+      const hasCritical = state.stats.severities.FATAL > 0 || state.stats.severities.ERROR > 0;
+      if (hasCritical && currentSuggestions.length > 0 && !hasAutoPromptedRef.current) {
+        hasAutoPromptedRef.current = true;
+        const autoQuery = currentSuggestions.find(s => s.toLowerCase().includes('critical') || s.toLowerCase().includes('fail')) || currentSuggestions[0];
+        setTimeout(() => handleSendMessage(autoQuery), 100);
       }
     } catch (e) {
-      replaceLastMessageContent("Forensic node online. Patterns indexed.");
-      setSuggestions(['Summarize Failures', 'Trace Latency Spikes']);
+      replaceLastMessageContent("Forensic node online. Patterns indexed for manual inquiry.");
+      setSuggestions(['Analyze Critical Failures', 'Summarize Security Risks']);
     } finally {
       finishLastMessage();
     }
@@ -185,21 +203,26 @@ export default function App() {
       content: 'Initializing Forensic Engine...',
       timestamp: new Date(),
       isLoading: true,
-      analysisPhase: 'PARSING' // Start here immediately
+      analysisPhase: 'PARSING'
     });
     setIsProcessing(true);
+    setWorkflowStatus('rootCause', 'active');
 
     try {
-      // PHASE UPDATES are now purely driven by the Gemini stream chunks where possible
       const stream = gemini.analyzeLogsStream(state.chunks, query, state.selectedModelId, state.stats, state.userRole, state.industry, state.discoverySignatures, signal);
       for await (const chunk of stream) {
         if (chunk.type === 'phase') {
           setAnalysisPhase(chunk.data);
         } else if (chunk.type === 'text') {
-          setAnalysisPhase('GENERATING');
           replaceLastMessageContent(chunk.data);
         } else if (chunk.type === 'structured_report') {
           setLastMessageStructuredReport(chunk.data);
+          
+          // Auto-propagate finding to War Room
+          const ir = chunk.data.incident_report;
+          if (ir && ir.root_cause_analysis?.primary_failure) {
+            addHypothesis(`CONFIRMED: ${ir.root_cause_analysis.primary_failure} - ${ir.root_cause_analysis.description}`);
+          }
         }
       }
     } catch (e: any) {
@@ -214,8 +237,9 @@ export default function App() {
     setIsDemoMode(true);
     hasAutoPromptedRef.current = false;
     try {
-      const response = await fetch('/demo.log');
-      const blob = await response.blob();
+      // Use raw sample from demo log if fetch fails or use a fallback
+      const demoLogs = `2026-05-20T10:00:00.001Z [FATAL] java.lang.OutOfMemoryError: GC overhead limit exceeded at com.cloudlog.orders.Processor.bufferTransaction(Processor.java:142)`;
+      const blob = new Blob([demoLogs], { type: 'text/plain' });
       const file = new File([blob], 'demo.log', { type: 'text/plain' });
       processNewFile([file]);
     } catch (err) {
@@ -229,14 +253,14 @@ export default function App() {
     return (
       <div className="min-h-screen bg-[#020617] text-white flex flex-col items-center justify-center p-6 font-sans selection:bg-blue-500/30 overflow-hidden relative">
         <header className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-6 sm:px-12 bg-[#020617]/50 backdrop-blur-3xl z-50 border-b border-white/[0.03]">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 cursor-pointer" onClick={goHome}>
              <div className="p-1.5 bg-blue-600 rounded-lg">
                <Terminal size={18} className="text-white" />
              </div>
              <h1 className="text-sm font-black tracking-tighter uppercase">CloudLog AI</h1>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={resetApp} className="p-2 text-slate-500 hover:text-red-400 transition-all"><RefreshCcw size={16} /></button>
+            <button onClick={resetApp} title="System Restart" className="p-2 text-slate-500 hover:text-red-400 transition-all"><RefreshCcw size={16} /></button>
           </div>
         </header>
 
@@ -266,7 +290,7 @@ export default function App() {
     <div className="h-screen flex flex-col bg-[#020617] text-white overflow-hidden selection:bg-blue-500/30">
       <header className="h-14 flex items-center justify-between px-4 bg-[#020617] border-b border-white/[0.03] z-50 shrink-0">
         <div className="flex items-center gap-4 lg:gap-8">
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => resetApp()}>
+          <div className="flex items-center gap-3 cursor-pointer group" onClick={goHome}>
              <Terminal size={16} className="text-blue-500" />
              <span className="text-xs font-black italic uppercase tracking-tighter hidden sm:inline">CloudLog AI</span>
           </div>
@@ -284,7 +308,7 @@ export default function App() {
            <button onClick={() => setShowLeftSidebar(!showLeftSidebar)} className={`p-2 rounded-lg transition-colors hidden xl:block ${showLeftSidebar ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:bg-white/5'}`}>
              <PanelLeft size={18} />
            </button>
-           <button onClick={resetApp} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-all shadow-lg active:scale-95">
+           <button onClick={goHome} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-all shadow-lg active:scale-95">
               <PlusCircle size={14} /> <span className="hidden sm:inline">New investigation</span>
            </button>
            <button onClick={() => setShowRightSidebar(!showRightSidebar)} className={`p-2 rounded-lg transition-colors hidden 2xl:block ${showRightSidebar ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:bg-white/5'}`}>
@@ -314,13 +338,13 @@ export default function App() {
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               <DiagnosticRoadmap workflow={state.workflow} />
               <div className="flex-1 min-h-0">
-                 <ChatWindow messages={state.messages} onSendMessage={handleSendMessage} isProcessing={state.isProcessing} selectedModel={state.selectedModelId} suggestions={suggestions} sourceFiles={state.sourceFiles} stats={state.stats} allChunks={state.chunks} teamMembers={state.teamMembers} comments={state.comments} status={state.investigationStatus} onAddComment={addComment} onStatusChange={setInvestigationStatus} onStop={stopAnalysis} onNavigateHome={resetApp} />
+                 <ChatWindow messages={state.messages} onSendMessage={handleSendMessage} isProcessing={state.isProcessing} selectedModel={state.selectedModelId} suggestions={suggestions} sourceFiles={state.sourceFiles} stats={state.stats} allChunks={state.chunks} teamMembers={state.teamMembers} comments={state.comments} status={state.investigationStatus} onAddComment={addComment} onStatusChange={setInvestigationStatus} onStop={stopAnalysis} onNavigateHome={goHome} />
               </div>
             </div>
           )}
-          {activeView === 'industry' && <div className="flex-1 overflow-y-auto scrollbar-hide"><IndustryHub currentIndustry={state.industry} onSelectIndustry={setIndustry} stats={state.stats} /></div>}
-          {activeView === 'proactive' && <div className="flex-1 overflow-y-auto scrollbar-hide"><ProactiveDashboard anomalies={state.anomalies} trends={state.trends} /></div>}
-          {activeView === 'war-room' && <div className="flex-1 overflow-y-auto scrollbar-hide"><WarRoom hypotheses={state.hypotheses} actions={state.warRoomActions} userRole={state.userRole} onAddHypothesis={() => {}} onUpdateStatus={() => {}} onAddAction={() => {}} /></div>}
+          {activeView === 'industry' && <div className="flex-1 overflow-y-auto scrollbar-hide"><IndustryHub currentIndustry={state.industry} onSelectIndustry={setIndustry} stats={state.stats} onBack={() => setActiveView('chat')} /></div>}
+          {activeView === 'proactive' && <div className="flex-1 overflow-y-auto scrollbar-hide"><ProactiveDashboard anomalies={state.anomalies} trends={state.trends} onBack={() => setActiveView('chat')} /></div>}
+          {activeView === 'war-room' && <div className="flex-1 overflow-y-auto scrollbar-hide"><WarRoom hypotheses={state.hypotheses} actions={state.warRoomActions} userRole={state.userRole} analysis={latestAnalysis} onAddHypothesis={addHypothesis} onUpdateStatus={updateHypothesisStatus} onAddAction={addAction} onBack={() => setActiveView('chat')} /></div>}
         </main>
 
         <aside className={`fixed inset-y-0 right-0 z-40 w-96 bg-slate-950/80 backdrop-blur-3xl border-l border-white/5 transition-transform duration-300 xl:relative xl:translate-x-0 ${showRightSidebar ? 'translate-x-0' : 'translate-x-full xl:hidden'}`}>
@@ -338,7 +362,7 @@ export default function App() {
         <div className="fixed inset-0 z-[60] bg-slate-950/95 backdrop-blur-2xl lg:hidden animate-in fade-in duration-300">
            <div className="p-6 h-full flex flex-col">
               <div className="flex items-center justify-between mb-12">
-                 <div className="flex items-center gap-3">
+                 <div className="flex items-center gap-3 cursor-pointer" onClick={goHome}>
                    <Terminal size={20} className="text-blue-500" />
                    <span className="text-sm font-black italic uppercase tracking-tighter">CloudLog AI</span>
                  </div>
